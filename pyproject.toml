@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flask-ast-openapi"
+version = "0.1.0"
+description = "Generate OpenAPI specifications from Flask source code using AST"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]

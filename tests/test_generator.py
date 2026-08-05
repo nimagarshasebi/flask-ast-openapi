@@ -37,6 +37,8 @@ def test_discover_python_files_finds_nested_python_files(tmp_path):
         app_file,
         controller_file,
     }
+
+
 def test_is_route_decorator_returns_true_for_flask_route(tmp_path):
     source_code = """
 @app.route("/users")
@@ -51,6 +53,7 @@ def get_users():
     generator = FlaskASTOpenAPI(tmp_path)
 
     assert generator.is_route_decorator(decorator) is True
+
 
 
 def test_is_route_decorator_returns_false_for_other_decorator(tmp_path):
@@ -68,6 +71,8 @@ def get_users():
 
     assert generator.is_route_decorator(decorator) is False
 
+
+
 def test_extract_route_path_returns_route_url(tmp_path):
     source_code = """
 @app.route("/users")
@@ -83,6 +88,7 @@ def get_users():
     route_path = generator.extract_route_path(decorator)
 
     assert route_path == "/users"
+
 
 
 def test_extract_route_path_returns_none_for_non_route_decorator(tmp_path):
@@ -102,6 +108,7 @@ def get_users():
     assert route_path is None
 
 
+
 def test_extract_route_path_returns_none_when_path_is_missing(tmp_path):
     source_code = """
 @app.route()
@@ -117,6 +124,8 @@ def get_users():
     route_path = generator.extract_route_path(decorator)
 
     assert route_path is None
+
+
 def test_extract_http_methods_returns_multiple_methods(tmp_path):
     source_code = """
 @app.route("/users", methods=["GET", "POST"])
@@ -132,6 +141,7 @@ def users():
     methods = generator.extract_http_methods(decorator)
 
     assert methods == ["GET", "POST"]
+
 
 
 def test_extract_http_methods_converts_methods_to_uppercase(tmp_path):
@@ -151,6 +161,7 @@ def users():
     assert methods == ["GET", "POST"]
 
 
+
 def test_extract_http_methods_returns_get_by_default(tmp_path):
     source_code = """
 @app.route("/users")
@@ -168,6 +179,7 @@ def users():
     assert methods == ["GET"]
 
 
+
 def test_extract_http_methods_returns_empty_list_for_non_route(tmp_path):
     source_code = """
 @require_auth
@@ -183,3 +195,52 @@ def users():
     methods = generator.extract_http_methods(decorator)
 
     assert methods == []
+def test_find_route_functions_returns_only_route_functions(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    pass
+
+
+def helper():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route_functions = generator.find_route_functions(tree)
+
+    assert len(route_functions) == 1
+    assert route_functions[0].name == "get_users"
+
+
+def test_find_route_functions_supports_async_routes(tmp_path):
+    source_code = """
+@app.route("/users")
+async def get_users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route_functions = generator.find_route_functions(tree)
+
+    assert len(route_functions) == 1
+    assert route_functions[0].name == "get_users"
+    assert isinstance(route_functions[0], ast.AsyncFunctionDef)
+
+
+def test_find_route_functions_returns_empty_list_when_no_routes(tmp_path):
+    source_code = """
+def helper():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route_functions = generator.find_route_functions(tree)
+
+    assert route_functions == []

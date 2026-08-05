@@ -85,3 +85,30 @@ class FlaskASTOpenAPI:
             return methods or ["GET"]
 
         return ["GET"]
+    
+    def find_route_functions(
+        self,
+        tree: ast.Module,
+    ) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
+        """Find Flask route functions in an AST module."""
+
+        route_functions: list[
+            ast.FunctionDef | ast.AsyncFunctionDef
+        ] = []
+
+        for node in tree.body:
+            if not isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
+                continue
+
+            has_route_decorator = any(
+                self.is_route_decorator(decorator)
+                for decorator in node.decorator_list
+            )
+
+            if has_route_decorator:
+                route_functions.append(node)
+
+        return route_functions

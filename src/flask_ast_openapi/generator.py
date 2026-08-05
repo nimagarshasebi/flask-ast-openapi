@@ -38,3 +38,21 @@ class FlaskASTOpenAPI:
             return False
 
         return function.attr == "route"
+    def extract_route_path(self, decorator: ast.expr) -> str | None:
+        """Extract the URL path from a Flask route decorator."""
+
+        if not self.is_route_decorator(decorator):
+            return None
+
+        if not decorator.args:
+            return None
+
+        route_argument = decorator.args[0]
+
+        if not isinstance(route_argument, ast.Constant):
+            return None
+
+        if not isinstance(route_argument.value, str):
+            return None
+
+        return route_argument.value

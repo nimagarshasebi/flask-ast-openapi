@@ -67,3 +67,53 @@ def get_users():
     generator = FlaskASTOpenAPI(tmp_path)
 
     assert generator.is_route_decorator(decorator) is False
+
+def test_extract_route_path_returns_route_url(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    route_path = generator.extract_route_path(decorator)
+
+    assert route_path == "/users"
+
+
+def test_extract_route_path_returns_none_for_non_route_decorator(tmp_path):
+    source_code = """
+@require_auth
+def get_users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    route_path = generator.extract_route_path(decorator)
+
+    assert route_path is None
+
+
+def test_extract_route_path_returns_none_when_path_is_missing(tmp_path):
+    source_code = """
+@app.route()
+def get_users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    route_path = generator.extract_route_path(decorator)
+
+    assert route_path is None

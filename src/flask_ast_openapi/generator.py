@@ -25,3 +25,16 @@ class FlaskASTOpenAPI:
             source_code,
             filename=str(path),
         )
+
+    def is_route_decorator(self, decorator: ast.expr) -> bool:
+        """Check whether an AST decorator represents a Flask route."""
+
+        if not isinstance(decorator, ast.Call):
+            return False
+
+        function = decorator.func
+
+        if not isinstance(function, ast.Attribute):
+            return False
+
+        return function.attr == "route"

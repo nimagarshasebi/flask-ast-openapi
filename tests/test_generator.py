@@ -37,3 +37,33 @@ def test_discover_python_files_finds_nested_python_files(tmp_path):
         app_file,
         controller_file,
     }
+def test_is_route_decorator_returns_true_for_flask_route(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_route_decorator(decorator) is True
+
+
+def test_is_route_decorator_returns_false_for_other_decorator(tmp_path):
+    source_code = """
+@require_auth
+def get_users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_route_decorator(decorator) is False

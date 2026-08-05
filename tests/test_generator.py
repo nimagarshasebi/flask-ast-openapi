@@ -117,3 +117,69 @@ def get_users():
     route_path = generator.extract_route_path(decorator)
 
     assert route_path is None
+def test_extract_http_methods_returns_multiple_methods(tmp_path):
+    source_code = """
+@app.route("/users", methods=["GET", "POST"])
+def users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    methods = generator.extract_http_methods(decorator)
+
+    assert methods == ["GET", "POST"]
+
+
+def test_extract_http_methods_converts_methods_to_uppercase(tmp_path):
+    source_code = """
+@app.route("/users", methods=["get", "post"])
+def users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    methods = generator.extract_http_methods(decorator)
+
+    assert methods == ["GET", "POST"]
+
+
+def test_extract_http_methods_returns_get_by_default(tmp_path):
+    source_code = """
+@app.route("/users")
+def users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    methods = generator.extract_http_methods(decorator)
+
+    assert methods == ["GET"]
+
+
+def test_extract_http_methods_returns_empty_list_for_non_route(tmp_path):
+    source_code = """
+@require_auth
+def users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    methods = generator.extract_http_methods(decorator)
+
+    assert methods == []

@@ -56,3 +56,32 @@ class FlaskASTOpenAPI:
             return None
 
         return route_argument.value
+    def extract_http_methods(self, decorator: ast.expr) -> list[str]:
+        """Extract HTTP methods from a Flask route decorator."""
+
+        if not self.is_route_decorator(decorator):
+            return []
+
+        for keyword in decorator.keywords:
+            if keyword.arg != "methods":
+                continue
+
+            methods_value = keyword.value
+
+            if not isinstance(methods_value, (ast.List, ast.Tuple)):
+                return ["GET"]
+
+            methods: list[str] = []
+
+            for element in methods_value.elts:
+                if not isinstance(element, ast.Constant):
+                    continue
+
+                if not isinstance(element.value, str):
+                    continue
+
+                methods.append(element.value.upper())
+
+            return methods or ["GET"]
+
+        return ["GET"]

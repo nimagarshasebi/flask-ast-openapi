@@ -382,3 +382,45 @@ def test_extract_path_parameters_returns_empty_list(tmp_path):
     parameters = generator.extract_path_parameters("/users")
 
     assert parameters == []
+def test_converter_to_openapi_schema_returns_integer(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.converter_to_openapi_schema("int")
+
+    assert schema == {
+        "type": "integer",
+    }
+
+
+def test_converter_to_openapi_schema_returns_float(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.converter_to_openapi_schema("float")
+
+    assert schema == {
+        "type": "number",
+        "format": "float",
+    }
+
+
+def test_converter_to_openapi_schema_returns_uuid(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.converter_to_openapi_schema("uuid")
+
+    assert schema == {
+        "type": "string",
+        "format": "uuid",
+    }
+
+
+def test_converter_to_openapi_schema_uses_string_for_unknown_converter(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.converter_to_openapi_schema("custom")
+
+    assert schema == {
+        "type": "string",
+    }

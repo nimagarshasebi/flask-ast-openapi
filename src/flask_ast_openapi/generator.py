@@ -175,3 +175,30 @@ class FlaskASTOpenAPI:
             )
 
         return parameters
+    def converter_to_openapi_schema(self,converter: str,) -> dict[str, str]:
+        """Convert a Flask path converter to an OpenAPI schema."""
+
+        schemas = {
+            "int": {
+                "type": "integer",
+            },
+            "float": {
+                "type": "number",
+                "format": "float",
+            },
+            "uuid": {
+                "type": "string",
+                "format": "uuid",
+            },
+            "path": {
+                "type": "string",
+            },
+            "string": {
+                "type": "string",
+            },
+        }
+
+        return schemas.get(
+            converter,
+            {"type": "string"},
+        )

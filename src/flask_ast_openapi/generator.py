@@ -2,8 +2,14 @@
 
 import ast
 from pathlib import Path
+from dataclasses import dataclass
+@dataclass
+class RouteDefinition:
+    """Information extracted from a Flask route."""
 
-
+    function_name: str
+    path: str
+    methods: list[str]
 class FlaskASTOpenAPI:
     """Generate OpenAPI documentation by analyzing Flask source code."""
 
@@ -112,3 +118,27 @@ class FlaskASTOpenAPI:
                 route_functions.append(node)
 
         return route_functions
+    def extract_routes(self, tree: ast.Module) -> list[RouteDefinition]:
+        """Extract route definitions from an AST module."""
+
+        routes: list[RouteDefinition] = []
+
+        for function in self.find_route_functions(tree):
+            for decorator in function.decorator_list:
+                if not self.is_route_decorator(decorator):
+                    continue
+
+                path = self.extract_route_path(decorator)
+
+                if path is None:
+                    continue
+
+                routes.append(
+                    RouteDefinition(
+                        function_name=function.name,
+                        path=path,
+                        methods=self.extract_http_methods(decorator),
+                    )
+                )
+
+        return routes

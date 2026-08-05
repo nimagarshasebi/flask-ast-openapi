@@ -244,3 +244,59 @@ def helper():
     route_functions = generator.find_route_functions(tree)
 
     assert route_functions == []
+def test_extract_routes_returns_route_information(tmp_path):
+    source_code = """
+@app.route("/users", methods=["GET", "POST"])
+def users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].function_name == "users"
+    assert routes[0].path == "/users"
+    assert routes[0].methods == ["GET", "POST"]
+
+
+def test_extract_routes_returns_multiple_routes(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    pass
+
+
+@app.route("/products", methods=["POST"])
+def create_product():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 2
+    assert routes[0].path == "/users"
+    assert routes[0].methods == ["GET"]
+
+    assert routes[1].path == "/products"
+    assert routes[1].methods == ["POST"]
+
+
+def test_extract_routes_ignores_route_without_path(tmp_path):
+    source_code = """
+@app.route()
+def users():
+    pass
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert routes == []

@@ -336,3 +336,49 @@ def test_convert_flask_path_without_parameters(tmp_path):
     result = generator.convert_flask_path_to_openapi("/users")
 
     assert result == "/users"
+def test_extract_path_parameters_with_converter(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.extract_path_parameters(
+        "/users/<int:user_id>"
+    )
+
+    assert len(parameters) == 1
+    assert parameters[0].name == "user_id"
+    assert parameters[0].converter == "int"
+
+
+def test_extract_path_parameters_uses_string_by_default(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.extract_path_parameters(
+        "/products/<product_id>"
+    )
+
+    assert len(parameters) == 1
+    assert parameters[0].name == "product_id"
+    assert parameters[0].converter == "string"
+
+
+def test_extract_path_parameters_returns_multiple_parameters(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.extract_path_parameters(
+        "/users/<int:user_id>/posts/<string:post_id>"
+    )
+
+    assert len(parameters) == 2
+
+    assert parameters[0].name == "user_id"
+    assert parameters[0].converter == "int"
+
+    assert parameters[1].name == "post_id"
+    assert parameters[1].converter == "string"
+
+
+def test_extract_path_parameters_returns_empty_list(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.extract_path_parameters("/users")
+
+    assert parameters == []

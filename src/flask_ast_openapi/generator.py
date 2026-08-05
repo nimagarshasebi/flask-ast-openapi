@@ -11,6 +11,12 @@ class RouteDefinition:
     function_name: str
     path: str
     methods: list[str]
+@dataclass
+class PathParameter:
+    """A parameter extracted from a Flask route path."""
+
+    name: str
+    converter: str
 class FlaskASTOpenAPI:
     """Generate OpenAPI documentation by analyzing Flask source code."""
 
@@ -153,3 +159,19 @@ class FlaskASTOpenAPI:
             r"{\1}",
             path,
         )
+    def extract_path_parameters(self, path: str) -> list[PathParameter]:
+        """Extract path parameters from a Flask route."""
+
+        pattern = r"<(?:(?P<converter>[^:<>]+):)?(?P<name>[^<>]+)>"
+
+        parameters: list[PathParameter] = []
+
+        for match in re.finditer(pattern, path):
+            parameters.append(
+                PathParameter(
+                    name=match.group("name"),
+                    converter=match.group("converter") or "string",
+                )
+            )
+
+        return parameters

@@ -300,3 +300,39 @@ def users():
     routes = generator.extract_routes(tree)
 
     assert routes == []
+def test_convert_flask_path_with_type_converter(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.convert_flask_path_to_openapi(
+        "/users/<int:user_id>"
+    )
+
+    assert result == "/users/{user_id}"
+
+
+def test_convert_flask_path_without_type_converter(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.convert_flask_path_to_openapi(
+        "/products/<product_id>"
+    )
+
+    assert result == "/products/{product_id}"
+
+
+def test_convert_flask_path_with_multiple_parameters(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.convert_flask_path_to_openapi(
+        "/users/<int:user_id>/posts/<string:post_id>"
+    )
+
+    assert result == "/users/{user_id}/posts/{post_id}"
+
+
+def test_convert_flask_path_without_parameters(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.convert_flask_path_to_openapi("/users")
+
+    assert result == "/users"

@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 from dataclasses import dataclass
+import re
 @dataclass
 class RouteDefinition:
     """Information extracted from a Flask route."""
@@ -142,3 +143,13 @@ class FlaskASTOpenAPI:
                 )
 
         return routes
+    def convert_flask_path_to_openapi(self, path: str) -> str:
+        """Convert Flask path parameters to OpenAPI format."""
+
+        pattern = r"<(?:[^:<>]+:)?([^<>]+)>"
+
+        return re.sub(
+            pattern,
+            r"{\1}",
+            path,
+        )

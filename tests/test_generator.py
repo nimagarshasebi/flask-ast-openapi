@@ -1,7 +1,7 @@
 import ast
 
 from flask_ast_openapi.generator import FlaskASTOpenAPI, RouteDefinition
-
+from flask_ast_openapi import FlaskASTOpenAPI as PublicFlaskASTOpenAPI
 
 def test_parse_file_returns_ast_module(tmp_path):
     source_file = tmp_path / "sample.py"
@@ -750,3 +750,7 @@ def create_product():
 
     assert "get" in spec["paths"]["/users"]
     assert "post" in spec["paths"]["/products"]
+def test_package_exports_flask_ast_openapi(tmp_path):
+    generator = PublicFlaskASTOpenAPI(tmp_path)
+
+    assert isinstance(generator, FlaskASTOpenAPI)

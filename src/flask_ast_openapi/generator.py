@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 from dataclasses import dataclass
 import re
+from typing import Any
 @dataclass
 class RouteDefinition:
     """Information extracted from a Flask route."""
@@ -202,3 +203,21 @@ class FlaskASTOpenAPI:
             converter,
             {"type": "string"},
         )
+    def build_openapi_path_parameters(self,path: str,) -> list[dict[str, Any]]:
+        """Build OpenAPI parameter objects from a Flask route path."""
+
+        openapi_parameters: list[dict[str, Any]] = []
+
+        for parameter in self.extract_path_parameters(path):
+            openapi_parameters.append(
+                {
+                    "name": parameter.name,
+                    "in": "path",
+                    "required": True,
+                    "schema": self.converter_to_openapi_schema(
+                        parameter.converter
+                    ),
+                }
+            )
+
+        return openapi_parameters

@@ -424,3 +424,56 @@ def test_converter_to_openapi_schema_uses_string_for_unknown_converter(
     assert schema == {
         "type": "string",
     }
+def test_build_openapi_path_parameters_returns_integer_parameter(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.build_openapi_path_parameters(
+        "/users/<int:user_id>"
+    )
+
+    assert parameters == [
+        {
+            "name": "user_id",
+            "in": "path",
+            "required": True,
+            "schema": {
+                "type": "integer",
+            },
+        }
+    ]
+
+
+def test_build_openapi_path_parameters_returns_multiple_parameters(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.build_openapi_path_parameters(
+        "/users/<int:user_id>/posts/<uuid:post_id>"
+    )
+
+    assert parameters == [
+        {
+            "name": "user_id",
+            "in": "path",
+            "required": True,
+            "schema": {
+                "type": "integer",
+            },
+        },
+        {
+            "name": "post_id",
+            "in": "path",
+            "required": True,
+            "schema": {
+                "type": "string",
+                "format": "uuid",
+            },
+        },
+    ]
+
+
+def test_build_openapi_path_parameters_returns_empty_list(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    parameters = generator.build_openapi_path_parameters("/users")
+
+    assert parameters == []

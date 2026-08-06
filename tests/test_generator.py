@@ -1146,3 +1146,32 @@ def get_users():
     field_names = generator.extract_json_body_field_names(function)
 
     assert field_names == []
+def test_build_json_body_schema_creates_properties(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_json_body_schema(
+        ["name", "email"]
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+            "email": {
+                "type": "string",
+            },
+        },
+    }
+
+
+def test_build_json_body_schema_supports_empty_fields(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_json_body_schema([])
+
+    assert schema == {
+        "type": "object",
+        "properties": {},
+    }

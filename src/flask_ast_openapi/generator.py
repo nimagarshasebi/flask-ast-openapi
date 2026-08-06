@@ -487,4 +487,21 @@ class FlaskASTOpenAPI:
                     field_names.append(node.slice.value)
 
         return field_names
-        
+    def build_json_body_schema(
+        self,
+        field_names: list[str],
+    ) -> dict[str, Any]:
+        """Build an OpenAPI schema for JSON body fields."""
+
+        properties = {
+            field_name: {
+                "type": "string",
+            }
+            for field_name in field_names
+        }
+
+        return {
+            "type": "object",
+            "properties": properties,
+        }
+            

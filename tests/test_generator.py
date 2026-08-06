@@ -797,3 +797,47 @@ def test_write_json_preserves_unicode_text(tmp_path):
     content = output_path.read_text(encoding="utf-8")
 
     assert "رابط برنامه‌نویسی" in content
+def test_extract_query_parameter_names_returns_query_names(tmp_path):
+    source_code = """
+def get_users():
+    page = request.args.get("page")
+    search = request.args.get("search")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    parameter_names = generator.extract_query_parameter_names(function)
+
+    assert parameter_names == ["page", "search"]
+
+
+def test_extract_query_parameter_names_ignores_other_get_calls(tmp_path):
+    source_code = """
+def get_users():
+    value = data.get("name")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    parameter_names = generator.extract_query_parameter_names(function)
+
+    assert parameter_names == []
+
+
+def test_extract_query_parameter_names_returns_empty_list(tmp_path):
+    source_code = """
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    parameter_names = generator.extract_query_parameter_names(function)
+
+    assert parameter_names == []

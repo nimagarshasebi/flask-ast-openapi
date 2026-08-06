@@ -302,3 +302,47 @@ class FlaskASTOpenAPI:
         )
 
         return path
+    def extract_query_parameter_names(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> list[str]:
+        """Extract query parameter names used with request.args.get."""
+
+        parameter_names: list[str] = []
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+
+            if not isinstance(node.func, ast.Attribute):
+                continue
+
+            if node.func.attr != "get":
+                continue
+
+            args_attribute = node.func.value
+
+            if not isinstance(args_attribute, ast.Attribute):
+                continue
+
+            if args_attribute.attr != "args":
+                continue
+
+            if not isinstance(args_attribute.value, ast.Name):
+                continue
+
+            if args_attribute.value.id != "request":
+                continue
+
+            if not node.args:
+                continue
+
+            first_argument = node.args[0]
+
+            if not isinstance(first_argument, ast.Constant):
+                continue
+
+            if not isinstance(first_argument.value, str):
+                continue
+
+            parameter_names.append(first_argument.value)
+
+        return parameter_names
+    

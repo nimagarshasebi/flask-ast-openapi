@@ -5,6 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass
 import re
 from typing import Any
+import json
 @dataclass
 class RouteDefinition:
     """Information extracted from a Flask route."""
@@ -286,3 +287,18 @@ class FlaskASTOpenAPI:
             title=title,
             version=version,
         )
+    def write_json(self,spec: dict[str, Any],output_path: str | Path,) -> Path:
+        """Write an OpenAPI specification to a JSON file."""
+
+        path = Path(output_path)
+
+        path.write_text(
+            json.dumps(
+                spec,
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        return path

@@ -2,6 +2,7 @@ import ast
 
 from flask_ast_openapi.generator import FlaskASTOpenAPI, RouteDefinition
 from flask_ast_openapi import FlaskASTOpenAPI as PublicFlaskASTOpenAPI
+import json
 
 def test_parse_file_returns_ast_module(tmp_path):
     source_file = tmp_path / "sample.py"
@@ -754,3 +755,45 @@ def test_package_exports_flask_ast_openapi(tmp_path):
     generator = PublicFlaskASTOpenAPI(tmp_path)
 
     assert isinstance(generator, FlaskASTOpenAPI)
+def test_write_json_creates_openapi_file(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "Test API",
+            "version": "1.0.0",
+        },
+        "paths": {},
+    }
+
+    output_path = tmp_path / "openapi.json"
+
+    result = generator.write_json(spec, output_path)
+
+    assert result == output_path
+    assert output_path.exists()
+
+    saved_spec = json.loads(
+        output_path.read_text(encoding="utf-8")
+    )
+
+    assert saved_spec == spec
+
+
+def test_write_json_preserves_unicode_text(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = {
+        "info": {
+            "title": "رابط برنامه‌نویسی",
+        }
+    }
+
+    output_path = tmp_path / "openapi.json"
+
+    generator.write_json(spec, output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+
+    assert "رابط برنامه‌نویسی" in content

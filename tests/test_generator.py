@@ -591,3 +591,105 @@ def test_build_openapi_paths_combines_same_path(tmp_path):
     assert len(paths) == 1
     assert "get" in paths["/users"]
     assert "post" in paths["/users"]
+def test_build_openapi_paths_creates_get_operation(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = [
+        RouteDefinition(
+            function_name="get_user",
+            path="/users/<int:user_id>",
+            methods=["GET"],
+        )
+    ]
+
+    paths = generator.build_openapi_paths(routes)
+
+    assert "/users/{user_id}" in paths
+    assert "get" in paths["/users/{user_id}"]
+
+    assert (
+        paths["/users/{user_id}"]["get"]["operationId"]
+        == "get_user"
+    )
+
+
+def test_build_openapi_paths_supports_multiple_methods(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = [
+        RouteDefinition(
+            function_name="users",
+            path="/users",
+            methods=["GET", "POST"],
+        )
+    ]
+
+    paths = generator.build_openapi_paths(routes)
+
+    assert "get" in paths["/users"]
+    assert "post" in paths["/users"]
+
+    assert paths["/users"]["get"]["operationId"] == "users_get"
+    assert paths["/users"]["post"]["operationId"] == "users_post"
+
+
+def test_build_openapi_paths_combines_same_path(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = [
+        RouteDefinition(
+            function_name="get_users",
+            path="/users",
+            methods=["GET"],
+        ),
+        RouteDefinition(
+            function_name="create_user",
+            path="/users",
+            methods=["POST"],
+        ),
+    ]
+
+    paths = generator.build_openapi_paths(routes)
+
+    assert len(paths) == 1
+    assert "get" in paths["/users"]
+    assert "post" in paths["/users"]
+def test_build_openapi_spec_returns_complete_spec(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = [
+        RouteDefinition(
+            function_name="get_users",
+            path="/users",
+            methods=["GET"],
+        )
+    ]
+
+    spec = generator.build_openapi_spec(
+        routes,
+        title="User API",
+        version="1.0.0",
+    )
+
+    assert spec["openapi"] == "3.0.3"
+
+    assert spec["info"] == {
+        "title": "User API",
+        "version": "1.0.0",
+    }
+
+    assert "/users" in spec["paths"]
+    assert "get" in spec["paths"]["/users"]
+
+
+def test_build_openapi_spec_uses_default_info(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.build_openapi_spec([])
+
+    assert spec["info"] == {
+        "title": "Flask API",
+        "version": "1.0.0",
+    }
+
+    assert spec["paths"] == {}

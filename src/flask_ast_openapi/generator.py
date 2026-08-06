@@ -261,3 +261,14 @@ class FlaskASTOpenAPI:
                 path_item[method.lower()] = operation
 
         return paths
+    def build_openapi_spec(self,routes: list[RouteDefinition],title: str = "Flask API",version: str = "1.0.0",) -> dict[str, Any]:
+        """Build a complete OpenAPI specification."""
+
+        return {
+            "openapi": "3.0.3",
+            "info": {
+                "title": title,
+                "version": version,
+            },
+            "paths": self.build_openapi_paths(routes),
+        }

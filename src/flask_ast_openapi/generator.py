@@ -272,3 +272,17 @@ class FlaskASTOpenAPI:
             },
             "paths": self.build_openapi_paths(routes),
         }
+    def generate(self,title: str = "Flask API",version: str = "1.0.0",) -> dict[str, Any]:
+        """Generate an OpenAPI specification from all Python source files."""
+
+        routes: list[RouteDefinition] = []
+
+        for file_path in self.discover_python_files():
+            tree = self.parse_file(file_path)
+            routes.extend(self.extract_routes(tree))
+
+        return self.build_openapi_spec(
+            routes,
+            title=title,
+            version=version,
+        )

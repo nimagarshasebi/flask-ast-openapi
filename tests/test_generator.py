@@ -693,3 +693,60 @@ def test_build_openapi_spec_uses_default_info(tmp_path):
     }
 
     assert spec["paths"] == {}
+def test_generate_builds_spec_from_python_files(tmp_path):
+    app_file = tmp_path / "app.py"
+
+    app_file.write_text(
+        """
+@app.route("/users", methods=["GET"])
+def get_users():
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate(
+        title="User API",
+        version="2.0.0",
+    )
+
+    assert spec["openapi"] == "3.0.3"
+
+    assert spec["info"] == {
+        "title": "User API",
+        "version": "2.0.0",
+    }
+
+    assert "/users" in spec["paths"]
+    assert "get" in spec["paths"]["/users"]
+
+
+def test_generate_collects_routes_from_multiple_files(tmp_path):
+    users_file = tmp_path / "users.py"
+    products_file = tmp_path / "products.py"
+
+    users_file.write_text(
+        """
+@app.route("/users")
+def get_users():
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    products_file.write_text(
+        """
+@app.route("/products", methods=["POST"])
+def create_product():
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    spec = generator.generate()
+
+    assert "get" in spec["paths"]["/users"]
+    assert "post" in spec["paths"]["/products"]

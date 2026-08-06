@@ -238,3 +238,26 @@ class FlaskASTOpenAPI:
                 }
             },
         }
+    def build_openapi_paths(self,routes: list[RouteDefinition],) -> dict[str, Any]:
+        """Build the OpenAPI paths object."""
+
+        paths: dict[str, Any] = {}
+
+        for route in routes:
+            openapi_path = self.convert_flask_path_to_openapi(
+                route.path
+            )
+
+            path_item = paths.setdefault(openapi_path, {})
+
+            for method in route.methods:
+                operation = self.build_openapi_operation(route)
+
+                if len(route.methods) > 1:
+                    operation["operationId"] = (
+                        f"{route.function_name}_{method.lower()}"
+                    )
+
+                path_item[method.lower()] = operation
+
+        return paths

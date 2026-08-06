@@ -1202,3 +1202,64 @@ def create_user():
         "name",
         "email",
     ]
+def test_extract_function_description_returns_docstring(tmp_path):
+    source_code = '''
+def get_users():
+    """Return all registered users."""
+    return []
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    description = generator.extract_function_description(function)
+
+    assert description == "Return all registered users."
+
+
+def test_extract_function_description_returns_none_without_docstring(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    description = generator.extract_function_description(function)
+
+    assert description is None
+def test_extract_routes_includes_description(tmp_path):
+    source_code = '''
+@app.route("/users")
+def get_users():
+    """Return all registered users."""
+    return []
+'''
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].description == "Return all registered users."
+
+
+def test_build_openapi_operation_includes_description(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        description="Return all registered users.",
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["description"] == "Return all registered users."

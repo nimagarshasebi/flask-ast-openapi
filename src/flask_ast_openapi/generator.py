@@ -16,6 +16,7 @@ class RouteDefinition:
     query_parameter_names: list[str] = field(default_factory=list)
     uses_json_body: bool = False
     json_body_field_names: list[str] = field(default_factory=list)
+    description: str | None = None
 @dataclass
 class PathParameter:
     """A parameter extracted from a Flask route path."""
@@ -130,7 +131,7 @@ class FlaskASTOpenAPI:
                 route_functions.append(node)
 
         return route_functions
-    def extract_routes(self, tree: ast.Module) -> list[RouteDefinition]:
+    def extract_routes(self,tree: ast.Module,) -> list[RouteDefinition]:
         """Extract route definitions from an AST module."""
 
         routes: list[RouteDefinition] = []
@@ -150,26 +151,28 @@ class FlaskASTOpenAPI:
                         function_name=function.name,
                         path=path,
                         methods=self.extract_http_methods(decorator),
-                        query_parameter_names=self.extract_query_parameter_names(
+                        query_parameter_names=(
+                            self.extract_query_parameter_names(function)
+                        ),
+                        uses_json_body=self.function_uses_json_body(
                             function
                         ),
-                        uses_json_body=self.function_uses_json_body(function),
-                        json_body_field_names=self.extract_json_body_field_names(
+                        json_body_field_names=(
+                            self.extract_json_body_field_names(function)
+                        ),
+                        description=self.extract_function_description(
                             function
                         ),
                     )
                 )
+
         return routes
     def convert_flask_path_to_openapi(self, path: str) -> str:
         """Convert Flask path parameters to OpenAPI format."""
 
         pattern = r"<(?:[^:<>]+:)?([^<>]+)>"
 
-        return re.sub(
-            pattern,
-            r"{\1}",
-            path,
-        )
+        return re.sub(pattern,r"{\1}",path,)
     def extract_path_parameters(self, path: str) -> list[PathParameter]:
         """Extract path parameters from a Flask route."""
 
@@ -266,6 +269,9 @@ class FlaskASTOpenAPI:
                     }
                 },
             }
+
+        if route.description:
+            operation["description"] = route.description
 
         return operation
     def build_openapi_paths(self,routes: list[RouteDefinition],) -> dict[str, Any]:
@@ -508,4 +514,7 @@ class FlaskASTOpenAPI:
             "type": "object",
             "properties": properties,
         }
-            
+    def extract_function_description(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> str | None:
+        """Extract the docstring from a route function."""
+
+        return ast.get_docstring(function)

@@ -518,3 +518,21 @@ class FlaskASTOpenAPI:
         """Extract the docstring from a route function."""
 
         return ast.get_docstring(function)
+    def is_http_method_decorator(self,decorator: ast.expr,) -> bool:
+        """Check whether a decorator is a Flask HTTP method decorator."""
+
+        if not isinstance(decorator, ast.Call):
+            return False
+
+        if not isinstance(decorator.func, ast.Attribute):
+            return False
+
+        supported_methods = {
+            "get",
+            "post",
+            "put",
+            "patch",
+            "delete",
+        }
+
+        return decorator.func.attr in supported_methods

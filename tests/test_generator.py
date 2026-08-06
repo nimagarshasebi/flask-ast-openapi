@@ -1263,3 +1263,67 @@ def test_build_openapi_operation_includes_description(tmp_path):
     operation = generator.build_openapi_operation(route)
 
     assert operation["description"] == "Return all registered users."
+def test_is_http_method_decorator_returns_true_for_get(tmp_path):
+    source_code = """
+@app.get("/users")
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_http_method_decorator(decorator) is True
+
+
+def test_is_http_method_decorator_returns_true_for_post(tmp_path):
+    source_code = """
+@app.post("/users")
+def create_user():
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_http_method_decorator(decorator) is True
+
+
+def test_is_http_method_decorator_returns_false_for_route(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_http_method_decorator(decorator) is False
+
+
+def test_is_http_method_decorator_returns_false_for_unsupported_method(
+    tmp_path,
+):
+    source_code = """
+@app.options("/users")
+def users_options():
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_http_method_decorator(decorator) is False

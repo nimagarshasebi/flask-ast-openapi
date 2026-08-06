@@ -57,10 +57,16 @@ class FlaskASTOpenAPI:
             return False
 
         return function.attr == "route"
-    def extract_route_path(self, decorator: ast.expr) -> str | None:
-        """Extract the URL path from a Flask route decorator."""
+    def extract_route_path(
+    self,
+    decorator: ast.expr,
+) -> str | None:
+        """Extract the path from a Flask route decorator."""
 
-        if not self.is_route_decorator(decorator):
+        if not self.is_flask_route_decorator(decorator):
+            return None
+
+        if not isinstance(decorator, ast.Call):
             return None
 
         if not decorator.args:
@@ -75,11 +81,21 @@ class FlaskASTOpenAPI:
             return None
 
         return route_argument.value
-    def extract_http_methods(self, decorator: ast.expr) -> list[str]:
+    def extract_http_methods(
+        self,
+        decorator: ast.expr,
+    ) -> list[str]:
         """Extract HTTP methods from a Flask route decorator."""
 
-        if not self.is_route_decorator(decorator):
+        if not self.is_flask_route_decorator(decorator):
             return []
+
+        if not isinstance(decorator, ast.Call):
+            return []
+
+        if self.is_http_method_decorator(decorator):
+            method_name = decorator.func.attr
+            return [method_name.upper()]
 
         for keyword in decorator.keywords:
             if keyword.arg != "methods":
@@ -104,7 +120,6 @@ class FlaskASTOpenAPI:
             return methods or ["GET"]
 
         return ["GET"]
-    
     def find_route_functions(self,tree: ast.Module,) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
         """Find functions decorated as Flask routes."""
 
@@ -128,14 +143,17 @@ class FlaskASTOpenAPI:
                 route_functions.append(node)
 
         return route_functions
-    def extract_routes(self,tree: ast.Module,) -> list[RouteDefinition]:
+    def extract_routes(
+        self,
+        tree: ast.Module,
+    ) -> list[RouteDefinition]:
         """Extract route definitions from an AST module."""
 
         routes: list[RouteDefinition] = []
 
         for function in self.find_route_functions(tree):
             for decorator in function.decorator_list:
-                if not self.is_route_decorator(decorator):
+                if not self.is_flask_route_decorator(decorator):
                     continue
 
                 path = self.extract_route_path(decorator)

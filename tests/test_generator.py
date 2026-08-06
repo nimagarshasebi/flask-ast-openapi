@@ -1457,3 +1457,18 @@ def helper():
     functions = generator.find_route_functions(tree)
 
     assert functions == []
+def test_extract_route_path_supports_blueprint_decorator(tmp_path):
+    source_code = """
+@users_bp.patch("/users/<int:user_id>")
+def update_user(user_id):
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    decorator = tree.body[0].decorator_list[0]
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert (
+        generator.extract_route_path(decorator)
+        == "/users/<int:user_id>"
+    )

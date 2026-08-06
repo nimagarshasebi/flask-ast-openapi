@@ -2,7 +2,7 @@
 
 import ast
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 from typing import Any
 import json
@@ -13,6 +13,7 @@ class RouteDefinition:
     function_name: str
     path: str
     methods: list[str]
+    query_parameter_names: list[str] = field(default_factory=list)
 @dataclass
 class PathParameter:
     """A parameter extracted from a Flask route path."""
@@ -147,9 +148,11 @@ class FlaskASTOpenAPI:
                         function_name=function.name,
                         path=path,
                         methods=self.extract_http_methods(decorator),
+                        query_parameter_names=self.extract_query_parameter_names(
+                            function
+                        ),
                     )
                 )
-
         return routes
     def convert_flask_path_to_openapi(self, path: str) -> str:
         """Convert Flask path parameters to OpenAPI format."""
@@ -222,17 +225,20 @@ class FlaskASTOpenAPI:
             )
 
         return openapi_parameters
-    def build_openapi_operation(
-    self,
-    route: RouteDefinition,
-) -> dict[str, Any]:
+    def build_openapi_operation(self,route: RouteDefinition,) -> dict[str, Any]:
         """Build an OpenAPI operation for a Flask route."""
+
+        parameters = self.build_openapi_path_parameters(route.path)
+
+        parameters.extend(
+            self.build_query_parameters_from_names(
+                route.query_parameter_names
+            )
+        )
 
         return {
             "operationId": route.function_name,
-            "parameters": self.build_openapi_path_parameters(
-                route.path
-            ),
+            "parameters": parameters,
             "responses": {
                 "200": {
                     "description": "Successful response",
@@ -363,3 +369,17 @@ class FlaskASTOpenAPI:
             )
 
         return parameters
+    def build_query_parameters_from_names(self,names: list[str],) -> list[dict[str, Any]]:
+        """Build OpenAPI query parameters from their names."""
+
+        return [
+            {
+                "name": name,
+                "in": "query",
+                "required": False,
+                "schema": {
+                    "type": "string",
+                },
+            }
+            for name in names
+        ]

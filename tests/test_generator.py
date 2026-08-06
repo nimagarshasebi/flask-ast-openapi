@@ -887,3 +887,87 @@ def get_users():
     parameters = generator.build_openapi_query_parameters(function)
 
     assert parameters == []
+def test_extract_routes_includes_query_parameter_names(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    page = request.args.get("page")
+    search = request.args.get("search")
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].query_parameter_names == [
+        "page",
+        "search",
+    ]
+
+
+def test_build_openapi_operation_includes_query_parameters(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        query_parameter_names=["page", "search"],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["parameters"] == [
+        {
+            "name": "page",
+            "in": "query",
+            "required": False,
+            "schema": {
+                "type": "string",
+            },
+        },
+        {
+            "name": "search",
+            "in": "query",
+            "required": False,
+            "schema": {
+                "type": "string",
+            },
+        },
+    ]
+
+
+def test_build_openapi_operation_combines_path_and_query_parameters(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_user",
+        path="/users/<int:user_id>",
+        methods=["GET"],
+        query_parameter_names=["detail"],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["parameters"] == [
+        {
+            "name": "user_id",
+            "in": "path",
+            "required": True,
+            "schema": {
+                "type": "integer",
+            },
+        },
+        {
+            "name": "detail",
+            "in": "query",
+            "required": False,
+            "schema": {
+                "type": "string",
+            },
+        },
+    ]

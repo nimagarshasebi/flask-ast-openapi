@@ -1391,3 +1391,69 @@ def get_users():
     generator = FlaskASTOpenAPI(tmp_path)
 
     assert generator.is_flask_route_decorator(decorator) is False
+def test_find_route_functions_supports_get_decorator(tmp_path):
+    source_code = """
+@app.get("/users")
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    functions = generator.find_route_functions(tree)
+
+    assert len(functions) == 1
+    assert functions[0].name == "get_users"
+
+
+def test_find_route_functions_supports_post_decorator(tmp_path):
+    source_code = """
+@app.post("/users")
+def create_user():
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    functions = generator.find_route_functions(tree)
+
+    assert len(functions) == 1
+    assert functions[0].name == "create_user"
+
+
+def test_find_route_functions_supports_async_method_decorator(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+async def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    functions = generator.find_route_functions(tree)
+
+    assert len(functions) == 1
+    assert functions[0].name == "get_users"
+    assert isinstance(functions[0], ast.AsyncFunctionDef)
+
+
+def test_find_route_functions_ignores_unrelated_decorators(
+    tmp_path,
+):
+    source_code = """
+@staticmethod
+def helper():
+    return None
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    functions = generator.find_route_functions(tree)
+
+    assert functions == []

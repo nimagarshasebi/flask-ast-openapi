@@ -1035,6 +1035,7 @@ def test_build_openapi_operation_includes_json_request_body(tmp_path):
         path="/users",
         methods=["POST"],
         uses_json_body=True,
+        json_body_field_names=["name", "email"],
     )
 
     operation = generator.build_openapi_operation(route)
@@ -1045,12 +1046,18 @@ def test_build_openapi_operation_includes_json_request_body(tmp_path):
             "application/json": {
                 "schema": {
                     "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                        },
+                        "email": {
+                            "type": "string",
+                        },
+                    },
                 }
             }
         },
     }
-
-
 def test_build_openapi_operation_omits_request_body_when_unused(tmp_path):
     generator = FlaskASTOpenAPI(tmp_path)
 
@@ -1175,3 +1182,23 @@ def test_build_json_body_schema_supports_empty_fields(tmp_path):
         "type": "object",
         "properties": {},
     }
+def test_extract_routes_includes_json_body_field_names(tmp_path):
+    source_code = """
+@app.route("/users", methods=["POST"])
+def create_user():
+    data = request.get_json()
+    name = data.get("name")
+    email = data["email"]
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].uses_json_body is True
+    assert routes[0].json_body_field_names == [
+        "name",
+        "email",
+    ]

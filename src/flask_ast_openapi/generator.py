@@ -15,6 +15,7 @@ class RouteDefinition:
     methods: list[str]
     query_parameter_names: list[str] = field(default_factory=list)
     uses_json_body: bool = False
+    json_body_field_names: list[str] = field(default_factory=list)
 @dataclass
 class PathParameter:
     """A parameter extracted from a Flask route path."""
@@ -153,6 +154,9 @@ class FlaskASTOpenAPI:
                             function
                         ),
                         uses_json_body=self.function_uses_json_body(function),
+                        json_body_field_names=self.extract_json_body_field_names(
+                            function
+                        ),
                     )
                 )
         return routes
@@ -256,9 +260,9 @@ class FlaskASTOpenAPI:
                 "required": True,
                 "content": {
                     "application/json": {
-                        "schema": {
-                            "type": "object",
-                        }
+                        "schema": self.build_json_body_schema(
+                            route.json_body_field_names
+                        )
                     }
                 },
             }

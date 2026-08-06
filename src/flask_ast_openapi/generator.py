@@ -221,3 +221,20 @@ class FlaskASTOpenAPI:
             )
 
         return openapi_parameters
+    def build_openapi_operation(
+    self,
+    route: RouteDefinition,
+) -> dict[str, Any]:
+        """Build an OpenAPI operation for a Flask route."""
+
+        return {
+            "operationId": route.function_name,
+            "parameters": self.build_openapi_path_parameters(
+                route.path
+            ),
+            "responses": {
+                "200": {
+                    "description": "Successful response",
+                }
+            },
+        }

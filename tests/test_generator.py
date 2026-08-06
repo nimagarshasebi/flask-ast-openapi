@@ -1,6 +1,6 @@
 import ast
 
-from flask_ast_openapi.generator import FlaskASTOpenAPI
+from flask_ast_openapi.generator import FlaskASTOpenAPI, RouteDefinition
 
 
 def test_parse_file_returns_ast_module(tmp_path):
@@ -477,3 +477,54 @@ def test_build_openapi_path_parameters_returns_empty_list(tmp_path):
     parameters = generator.build_openapi_path_parameters("/users")
 
     assert parameters == []
+def test_build_openapi_operation_returns_basic_operation(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation == {
+        "operationId": "get_users",
+        "parameters": [],
+        "responses": {
+            "200": {
+                "description": "Successful response",
+            }
+        },
+    }
+
+
+def test_build_openapi_operation_includes_path_parameters(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_user",
+        path="/users/<int:user_id>",
+        methods=["GET"],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["operationId"] == "get_user"
+
+    assert operation["parameters"] == [
+        {
+            "name": "user_id",
+            "in": "path",
+            "required": True,
+            "schema": {
+                "type": "integer",
+            },
+        }
+    ]
+
+    assert operation["responses"] == {
+        "200": {
+            "description": "Successful response",
+        }
+    }

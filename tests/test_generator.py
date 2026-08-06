@@ -841,3 +841,49 @@ def get_users():
     parameter_names = generator.extract_query_parameter_names(function)
 
     assert parameter_names == []
+def test_build_openapi_query_parameters_returns_parameters(tmp_path):
+    source_code = """
+def get_users():
+    page = request.args.get("page")
+    search = request.args.get("search")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    parameters = generator.build_openapi_query_parameters(function)
+
+    assert parameters == [
+        {
+            "name": "page",
+            "in": "query",
+            "required": False,
+            "schema": {
+                "type": "string",
+            },
+        },
+        {
+            "name": "search",
+            "in": "query",
+            "required": False,
+            "schema": {
+                "type": "string",
+            },
+        },
+    ]
+
+
+def test_build_openapi_query_parameters_returns_empty_list(tmp_path):
+    source_code = """
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    parameters = generator.build_openapi_query_parameters(function)
+
+    assert parameters == []

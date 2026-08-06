@@ -345,4 +345,21 @@ class FlaskASTOpenAPI:
             parameter_names.append(first_argument.value)
 
         return parameter_names
-    
+    def build_openapi_query_parameters(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> list[dict[str, Any]]:
+        """Build OpenAPI query parameters from a route function."""
+
+        parameters: list[dict[str, Any]] = []
+
+        for name in self.extract_query_parameter_names(function):
+            parameters.append(
+                {
+                    "name": name,
+                    "in": "query",
+                    "required": False,
+                    "schema": {
+                        "type": "string",
+                    },
+                }
+            )
+
+        return parameters

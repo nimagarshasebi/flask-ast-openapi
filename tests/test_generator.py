@@ -1064,3 +1064,85 @@ def test_build_openapi_operation_omits_request_body_when_unused(tmp_path):
     operation = generator.build_openapi_operation(route)
 
     assert "requestBody" not in operation
+def test_extract_json_body_field_names_from_get_calls(tmp_path):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    name = data.get("name")
+    email = data.get("email")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    field_names = generator.extract_json_body_field_names(function)
+
+    assert field_names == ["name", "email"]
+
+
+def test_extract_json_body_field_names_from_subscripts(tmp_path):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    name = data["name"]
+    email = data["email"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    field_names = generator.extract_json_body_field_names(function)
+
+    assert field_names == ["name", "email"]
+
+
+def test_extract_json_body_field_names_supports_request_json(tmp_path):
+    source_code = """
+def create_user():
+    payload = request.json
+    name = payload.get("name")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    field_names = generator.extract_json_body_field_names(function)
+
+    assert field_names == ["name"]
+
+
+def test_extract_json_body_field_names_avoids_duplicates(tmp_path):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    first_name = data.get("name")
+    second_name = data["name"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    field_names = generator.extract_json_body_field_names(function)
+
+    assert field_names == ["name"]
+
+
+def test_extract_json_body_field_names_returns_empty_list_without_json(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    name = query_data.get("name")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+    field_names = generator.extract_json_body_field_names(function)
+
+    assert field_names == []

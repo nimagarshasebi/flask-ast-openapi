@@ -424,4 +424,67 @@ class FlaskASTOpenAPI:
                     return True
 
         return False 
-    
+    def extract_json_body_field_names(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> list[str]:
+        """Extract JSON body field names used inside a route function."""
+
+        json_variable_names: set[str] = set()
+        field_names: list[str] = []
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Assign):
+                continue
+
+            value = node.value
+
+            uses_get_json = (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and isinstance(value.func.value, ast.Name)
+                and value.func.value.id == "request"
+                and value.func.attr == "get_json"
+            )
+
+            uses_request_json = (
+                isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Name)
+                and value.value.id == "request"
+                and value.attr == "json"
+            )
+
+            if not uses_get_json and not uses_request_json:
+                continue
+
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    json_variable_names.add(target.id)
+
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call):
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in json_variable_names
+                    and node.args
+                ):
+                    first_argument = node.args[0]
+
+                    if (
+                        isinstance(first_argument, ast.Constant)
+                        and isinstance(first_argument.value, str)
+                        and first_argument.value not in field_names
+                    ):
+                        field_names.append(first_argument.value)
+
+            if isinstance(node, ast.Subscript):
+                if (
+                    isinstance(node.value, ast.Name)
+                    and node.value.id in json_variable_names
+                    and isinstance(node.slice, ast.Constant)
+                    and isinstance(node.slice.value, str)
+                    and node.slice.value not in field_names
+                ):
+                    field_names.append(node.slice.value)
+
+        return field_names
+        

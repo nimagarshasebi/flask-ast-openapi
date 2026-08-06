@@ -1327,3 +1327,67 @@ def users_options():
     generator = FlaskASTOpenAPI(tmp_path)
 
     assert generator.is_http_method_decorator(decorator) is False
+def test_is_flask_route_decorator_supports_route(tmp_path):
+    source_code = """
+@app.route("/users")
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_flask_route_decorator(decorator) is True
+
+
+def test_is_flask_route_decorator_supports_get(tmp_path):
+    source_code = """
+@app.get("/users")
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_flask_route_decorator(decorator) is True
+
+
+def test_is_flask_route_decorator_supports_post(tmp_path):
+    source_code = """
+@app.post("/users")
+def create_user():
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_flask_route_decorator(decorator) is True
+
+
+def test_is_flask_route_decorator_rejects_unrelated_decorator(
+    tmp_path,
+):
+    source_code = """
+@staticmethod
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+    decorator = function.decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.is_flask_route_decorator(decorator) is False

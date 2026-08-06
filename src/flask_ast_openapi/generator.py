@@ -536,3 +536,10 @@ class FlaskASTOpenAPI:
         }
 
         return decorator.func.attr in supported_methods
+    def is_flask_route_decorator(self,decorator: ast.expr,) -> bool:
+        """Check whether a decorator defines a Flask route."""
+
+        return (
+            self.is_route_decorator(decorator)
+            or self.is_http_method_decorator(decorator)
+        )

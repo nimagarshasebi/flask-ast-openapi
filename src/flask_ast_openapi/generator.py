@@ -16,6 +16,9 @@ class RouteDefinition:
     query_parameter_names: list[str] = field(default_factory=list)
     uses_json_body: bool = False
     json_body_field_names: list[str] = field(default_factory=list)
+    required_json_body_field_names: list[str] = field(
+        default_factory=list
+    )
     description: str | None = None
 @dataclass
 class PathParameter:
@@ -175,6 +178,11 @@ class FlaskASTOpenAPI:
                         json_body_field_names=(
                             self.extract_json_body_field_names(function)
                         ),
+                        required_json_body_field_names=(
+                            self.extract_required_json_body_field_names(
+                                function
+                            )
+                        ),
                         description=self.extract_function_description(
                             function
                         ),
@@ -279,7 +287,8 @@ class FlaskASTOpenAPI:
                 "content": {
                     "application/json": {
                         "schema": self.build_json_body_schema(
-                            route.json_body_field_names
+                            route.json_body_field_names,
+                            route.required_json_body_field_names,
                         )
                     }
                 },
@@ -513,9 +522,10 @@ class FlaskASTOpenAPI:
 
         return field_names
     def build_json_body_schema(
-        self,
-        field_names: list[str],
-    ) -> dict[str, Any]:
+    self,
+    field_names: list[str],
+    required_field_names: list[str] | None = None,
+) -> dict[str, Any]:
         """Build an OpenAPI schema for JSON body fields."""
 
         properties = {
@@ -525,10 +535,15 @@ class FlaskASTOpenAPI:
             for field_name in field_names
         }
 
-        return {
+        schema: dict[str, Any] = {
             "type": "object",
             "properties": properties,
         }
+
+        if required_field_names:
+            schema["required"] = required_field_names
+
+        return schema
     def extract_function_description(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> str | None:
         """Extract the docstring from a route function."""
 
@@ -558,3 +573,62 @@ class FlaskASTOpenAPI:
             self.is_route_decorator(decorator)
             or self.is_http_method_decorator(decorator)
         )
+    def extract_required_json_body_field_names(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[str]:
+        """Extract required JSON fields accessed with dictionary subscripts."""
+
+        json_variable_names: set[str] = set()
+        required_field_names: list[str] = []
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Assign):
+                continue
+
+            value = node.value
+
+            uses_get_json = (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and isinstance(value.func.value, ast.Name)
+                and value.func.value.id == "request"
+                and value.func.attr == "get_json"
+            )
+
+            uses_request_json = (
+                isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Name)
+                and value.value.id == "request"
+                and value.attr == "json"
+            )
+
+            if not uses_get_json and not uses_request_json:
+                continue
+
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    json_variable_names.add(target.id)
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Subscript):
+                continue
+
+            if not isinstance(node.value, ast.Name):
+                continue
+
+            if node.value.id not in json_variable_names:
+                continue
+
+            if not isinstance(node.slice, ast.Constant):
+                continue
+
+            if not isinstance(node.slice.value, str):
+                continue
+
+            field_name = node.slice.value
+
+            if field_name not in required_field_names:
+                required_field_names.append(field_name)
+
+        return required_field_names

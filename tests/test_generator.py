@@ -1472,3 +1472,293 @@ def update_user(user_id):
         generator.extract_route_path(decorator)
         == "/users/<int:user_id>"
     )
+def test_extract_required_json_body_field_names_detects_subscript(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    email = data["email"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == ["email"]
+
+
+def test_extract_required_json_body_field_names_ignores_get(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    name = data.get("name")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == []
+
+
+def test_extract_required_json_body_field_names_supports_request_json(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    payload = request.json
+    email = payload["email"]
+    password = payload["password"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == [
+        "email",
+        "password",
+    ]
+
+
+def test_extract_required_json_body_field_names_removes_duplicates(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+
+    email = data["email"]
+
+    if data["email"]:
+        return data["email"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == ["email"]
+
+
+def test_extract_required_json_body_field_names_ignores_unrelated_dict(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    config = {"token": "abc"}
+
+    email = data["email"]
+    token = config["token"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == ["email"]
+
+
+def test_extract_required_json_body_field_names_handles_mixed_fields(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name")
+    email = data["email"]
+    age = data.get("age")
+    password = data["password"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == [
+        "email",
+        "password",
+    ]
+
+
+def test_extract_required_json_body_field_names_returns_empty_without_json(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    page = request.args.get("page")
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    required_fields = (
+        generator.extract_required_json_body_field_names(function)
+    )
+
+    assert required_fields == []
+def test_build_json_body_schema_includes_required_fields(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_json_body_schema(
+        field_names=["name", "email", "password"],
+        required_field_names=["email", "password"],
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+            "email": {
+                "type": "string",
+            },
+            "password": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "email",
+            "password",
+        ],
+    }
+
+
+def test_build_json_body_schema_omits_empty_required_fields(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_json_body_schema(
+        field_names=["name"],
+        required_field_names=[],
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+        },
+    }
+
+
+def test_extract_routes_includes_required_json_fields(tmp_path):
+    source_code = """
+@app.post("/users")
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name")
+    email = data["email"]
+    password = data["password"]
+
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+
+    route = routes[0]
+
+    assert route.json_body_field_names == [
+        "name",
+        "email",
+        "password",
+    ]
+
+    assert route.required_json_body_field_names == [
+        "email",
+        "password",
+    ]
+
+
+def test_build_openapi_operation_includes_required_json_fields(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="create_user",
+        path="/users",
+        methods=["POST"],
+        uses_json_body=True,
+        json_body_field_names=[
+            "name",
+            "email",
+            "password",
+        ],
+        required_json_body_field_names=[
+            "email",
+            "password",
+        ],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    schema = operation["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+            "email": {
+                "type": "string",
+            },
+            "password": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "email",
+            "password",
+        ],
+    }

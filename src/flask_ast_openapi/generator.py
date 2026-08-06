@@ -14,6 +14,7 @@ class RouteDefinition:
     path: str
     methods: list[str]
     query_parameter_names: list[str] = field(default_factory=list)
+    uses_json_body: bool = False
 @dataclass
 class PathParameter:
     """A parameter extracted from a Flask route path."""
@@ -151,6 +152,7 @@ class FlaskASTOpenAPI:
                         query_parameter_names=self.extract_query_parameter_names(
                             function
                         ),
+                        uses_json_body=self.function_uses_json_body(function),
                     )
                 )
         return routes
@@ -225,7 +227,10 @@ class FlaskASTOpenAPI:
             )
 
         return openapi_parameters
-    def build_openapi_operation(self,route: RouteDefinition,) -> dict[str, Any]:
+    def build_openapi_operation(
+        self,
+        route: RouteDefinition,
+    ) -> dict[str, Any]:
         """Build an OpenAPI operation for a Flask route."""
 
         parameters = self.build_openapi_path_parameters(route.path)
@@ -236,7 +241,7 @@ class FlaskASTOpenAPI:
             )
         )
 
-        return {
+        operation: dict[str, Any] = {
             "operationId": route.function_name,
             "parameters": parameters,
             "responses": {
@@ -245,6 +250,20 @@ class FlaskASTOpenAPI:
                 }
             },
         }
+
+        if route.uses_json_body:
+            operation["requestBody"] = {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                        }
+                    }
+                },
+            }
+
+        return operation
     def build_openapi_paths(self,routes: list[RouteDefinition],) -> dict[str, Any]:
         """Build the OpenAPI paths object."""
 

@@ -1011,3 +1011,56 @@ def get_users():
     generator = FlaskASTOpenAPI(tmp_path)
 
     assert generator.function_uses_json_body(function) is False
+def test_extract_routes_detects_json_body(tmp_path):
+    source_code = """
+@app.route("/users", methods=["POST"])
+def create_user():
+    data = request.get_json()
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].uses_json_body is True
+
+
+def test_build_openapi_operation_includes_json_request_body(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="create_user",
+        path="/users",
+        methods=["POST"],
+        uses_json_body=True,
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["requestBody"] == {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                }
+            }
+        },
+    }
+
+
+def test_build_openapi_operation_omits_request_body_when_unused(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        uses_json_body=False,
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert "requestBody" not in operation

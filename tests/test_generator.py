@@ -971,3 +971,43 @@ def test_build_openapi_operation_combines_path_and_query_parameters(
             },
         },
     ]
+def test_function_uses_json_body_detects_get_json(tmp_path):
+    source_code = """
+def create_user():
+    data = request.get_json()
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.function_uses_json_body(function) is True
+
+
+def test_function_uses_json_body_detects_request_json(tmp_path):
+    source_code = """
+def create_user():
+    data = request.json
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.function_uses_json_body(function) is True
+
+
+def test_function_uses_json_body_returns_false_without_json(tmp_path):
+    source_code = """
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.function_uses_json_body(function) is False

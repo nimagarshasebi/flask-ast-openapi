@@ -383,3 +383,26 @@ class FlaskASTOpenAPI:
             }
             for name in names
         ]
+    def function_uses_json_body(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> bool:
+        """Check whether a route function reads a JSON request body."""
+
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if (
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "request"
+                        and node.func.attr == "get_json"
+                    ):
+                        return True
+
+            if isinstance(node, ast.Attribute):
+                if (
+                    isinstance(node.value, ast.Name)
+                    and node.value.id == "request"
+                    and node.attr == "json"
+                ):
+                    return True
+
+        return False 
+    

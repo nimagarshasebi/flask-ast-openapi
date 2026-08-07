@@ -3092,3 +3092,226 @@ def get_user():
             },
         },
     }
+def test_extract_routes_includes_response_schemas(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users/<int:user_id>")
+def get_user(user_id):
+    if not found:
+        return {
+            "error": "not found",
+        }, 404
+
+    return {
+        "id": 1,
+        "name": "Nima",
+        "active": True,
+    }, 200
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+
+    route = routes[0]
+
+    assert set(route.response_schemas.keys()) == {
+        200,
+        404,
+    }
+
+    assert route.response_schemas[200] == {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+            },
+            "name": {
+                "type": "string",
+            },
+            "active": {
+                "type": "boolean",
+            },
+        },
+    }
+
+    assert route.response_schemas[404] == {
+        "type": "object",
+        "properties": {
+            "error": {
+                "type": "string",
+            },
+        },
+    }
+def test_extract_routes_has_empty_response_schemas_for_dynamic_response(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+def get_users():
+    result = load_users()
+    return result
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].response_schemas == {}
+def test_build_openapi_responses_includes_schema(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    responses = generator.build_openapi_responses(
+        status_codes=[200],
+        response_schemas={
+            200: {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                    },
+                    "name": {
+                        "type": "string",
+                    },
+                },
+            }
+        },
+    )
+
+    assert responses == {
+        "200": {
+            "description": "HTTP 200 response",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "integer",
+                            },
+                            "name": {
+                                "type": "string",
+                            },
+                        },
+                    }
+                }
+            },
+        }
+    }
+def test_build_openapi_responses_supports_multiple_schemas(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    responses = generator.build_openapi_responses(
+        status_codes=[
+            200,
+            404,
+        ],
+        response_schemas={
+            200: {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                    },
+                },
+            },
+            404: {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string",
+                    },
+                },
+            },
+        },
+    )
+
+    assert responses["200"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+            },
+        },
+    }
+
+    assert responses["404"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "error": {
+                "type": "string",
+            },
+        },
+    }
+def test_generate_includes_response_body_schema(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+@app.get("/users/<int:user_id>")
+def get_user(user_id):
+    if not found:
+        return {
+            "error": "not found",
+        }, 404
+
+    return {
+        "id": 1,
+        "name": "Nima",
+        "active": True,
+    }, 200
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    responses = spec["paths"][
+        "/users/{user_id}"
+    ]["get"]["responses"]
+
+    assert responses["200"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+            },
+            "name": {
+                "type": "string",
+            },
+            "active": {
+                "type": "boolean",
+            },
+        },
+    }
+
+    assert responses["404"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "error": {
+                "type": "string",
+            },
+        },
+    }

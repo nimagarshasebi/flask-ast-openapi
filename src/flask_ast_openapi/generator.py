@@ -24,6 +24,10 @@ class RouteDefinition:
         dict[str, Any],
     ] = field(default_factory=dict)
     response_status_codes: list[int] = field(default_factory=list)
+    response_schemas: dict[
+        int,
+        dict[str, Any],
+    ] = field(default_factory=dict)
     description: str | None = None
 @dataclass
 class PathParameter:
@@ -201,6 +205,9 @@ class FlaskASTOpenAPI:
                         description=self.extract_function_description(
                             function
                         ),
+                        response_schemas=(
+                            self.extract_response_schemas(function)
+                        ),
                     )
                 )
 
@@ -289,9 +296,10 @@ class FlaskASTOpenAPI:
         operation: dict[str, Any] = {
             "operationId": route.function_name,
             "parameters": parameters,
-            "responses": self.build_openapi_responses(
-                    route.response_status_codes
-                ),
+           "responses": self.build_openapi_responses(
+    route.response_status_codes,
+    route.response_schemas,
+),
         }
 
         if route.uses_json_body:
@@ -809,18 +817,35 @@ class FlaskASTOpenAPI:
     def build_openapi_responses(
     self,
     status_codes: list[int],
+    response_schemas: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-        """Build OpenAPI responses from HTTP status codes."""
+        """Build OpenAPI responses from status codes and schemas."""
 
-        if not status_codes:
-            status_codes = [200]
+        response_schemas = response_schemas or {}
+
+        effective_status_codes = (
+            status_codes
+            or list(response_schemas.keys())
+            or [200]
+        )
 
         responses: dict[str, Any] = {}
 
-        for status_code in status_codes:
-            responses[str(status_code)] = {
+        for status_code in effective_status_codes:
+            response: dict[str, Any] = {
                 "description": f"HTTP {status_code} response",
             }
+
+            schema = response_schemas.get(status_code)
+
+            if schema:
+                response["content"] = {
+                    "application/json": {
+                        "schema": schema,
+                    }
+                }
+
+            responses[str(status_code)] = response
 
         return responses
     def infer_openapi_schema_from_expression(

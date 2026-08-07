@@ -2,17 +2,28 @@
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "flask-ast-openapi"
 version = "0.1.0"
 description = "Generate OpenAPI specifications from Flask source code using AST"
+readme = "README.md"
 requires-python = ">=3.10"
+
+dependencies = [
+    "Flask>=3.0",
+]
+
 
 [project.scripts]
 flask-ast-openapi = "flask_ast_openapi.cli:main"
 
+
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+]
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

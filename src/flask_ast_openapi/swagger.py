@@ -52,6 +52,10 @@ def create_swagger_blueprint(
     version: str = "1.0.0",
     docs_url: str = "/docs",
     spec_url: str = "/openapi.json",
+    auth_decorator_names: set[str] | None = None,
+    auth_scheme_mapping: dict[str, list[str]] | None = None,
+    auth_scheme_modes: dict[str, str] | None = None,
+    security_schemes: dict[str, dict] | None = None,
 ) -> Blueprint:
     """Create a Flask Blueprint serving OpenAPI JSON and Swagger UI."""
 
@@ -65,7 +69,11 @@ def create_swagger_blueprint(
     @lru_cache(maxsize=1)
     def get_spec() -> dict:
         generator = FlaskASTOpenAPI(
-            source_path
+            source_path,
+            auth_decorator_names=auth_decorator_names,
+            auth_scheme_mapping=auth_scheme_mapping,
+            auth_scheme_modes=auth_scheme_modes,
+            security_schemes=security_schemes,
         )
 
         return generator.generate(

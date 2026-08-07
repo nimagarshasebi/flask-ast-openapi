@@ -494,7 +494,7 @@ def test_build_openapi_operation_returns_basic_operation(tmp_path):
         "parameters": [],
         "responses": {
             "200": {
-                "description": "Successful response",
+                "description": "HTTP 200 response",
             }
         },
     }
@@ -526,7 +526,7 @@ def test_build_openapi_operation_includes_path_parameters(tmp_path):
 
     assert operation["responses"] == {
         "200": {
-            "description": "Successful response",
+            "description": "HTTP 200 response",
         }
     }
 def test_build_openapi_paths_creates_get_operation(tmp_path):
@@ -2469,3 +2469,626 @@ def update_user():
     }
 
     assert len(status_codes) == 2
+def test_extract_routes_includes_response_status_codes(
+    tmp_path,
+):
+    source_code = """
+@app.post("/users")
+def create_user():
+    if invalid:
+        return {"error": "invalid"}, 400
+
+    if conflict:
+        return {"error": "conflict"}, 409
+
+    return {"message": "created"}, 201
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+
+    route = routes[0]
+
+    assert set(route.response_status_codes) == {
+        201,
+        400,
+        409,
+    }
+def test_extract_routes_has_empty_response_status_codes_without_explicit_status(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+def get_users():
+    return {"users": []}
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].response_status_codes == []
+def test_build_openapi_responses_uses_detected_status_codes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    responses = generator.build_openapi_responses(
+        [201, 400, 409]
+    )
+
+    assert responses == {
+        "201": {
+            "description": "HTTP 201 response",
+        },
+        "400": {
+            "description": "HTTP 400 response",
+        },
+        "409": {
+            "description": "HTTP 409 response",
+        },
+    }
+
+
+def test_build_openapi_responses_defaults_to_200(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    responses = generator.build_openapi_responses([])
+
+    assert responses == {
+        "200": {
+            "description": "HTTP 200 response",
+        },
+    }
+
+
+def test_build_openapi_operation_uses_route_response_status_codes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="create_user",
+        path="/users",
+        methods=["POST"],
+        response_status_codes=[
+            201,
+            400,
+        ],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["responses"] == {
+        "201": {
+            "description": "HTTP 201 response",
+        },
+        "400": {
+            "description": "HTTP 400 response",
+        },
+    }
+
+
+def test_generate_includes_detected_response_status_codes(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+@app.post("/users")
+def create_user():
+    if invalid:
+        return {"error": "invalid"}, 400
+
+    return {"message": "created"}, 201
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    responses = spec["paths"]["/users"]["post"]["responses"]
+
+    assert set(responses.keys()) == {
+        "201",
+        "400",
+    }
+def test_infer_openapi_schema_from_expression_detects_string(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value="hello")
+
+    assert generator.infer_openapi_schema_from_expression(node) == {
+        "type": "string",
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_integer(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=42)
+
+    assert generator.infer_openapi_schema_from_expression(node) == {
+        "type": "integer",
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_boolean(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=True)
+
+    assert generator.infer_openapi_schema_from_expression(node) == {
+        "type": "boolean",
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_float(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=3.14)
+
+    assert generator.infer_openapi_schema_from_expression(node) == {
+        "type": "number",
+        "format": "float",
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_none(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=None)
+
+    assert generator.infer_openapi_schema_from_expression(node) == {
+        "nullable": True,
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_object(
+    tmp_path,
+):
+    source_code = """
+value = {
+    "id": 1,
+    "name": "Nima",
+    "active": True,
+}
+"""
+
+    tree = ast.parse(source_code)
+    assignment = tree.body[0]
+    node = assignment.value
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.infer_openapi_schema_from_expression(
+        node
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+            },
+            "name": {
+                "type": "string",
+            },
+            "active": {
+                "type": "boolean",
+            },
+        },
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_nested_object(
+    tmp_path,
+):
+    source_code = """
+value = {
+    "user": {
+        "id": 1,
+        "name": "Nima",
+    },
+    "success": True,
+}
+"""
+
+    tree = ast.parse(source_code)
+    node = tree.body[0].value
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.infer_openapi_schema_from_expression(
+        node
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                    },
+                    "name": {
+                        "type": "string",
+                    },
+                },
+            },
+            "success": {
+                "type": "boolean",
+            },
+        },
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_array(
+    tmp_path,
+):
+    source_code = """
+value = [1, 2, 3]
+"""
+
+    tree = ast.parse(source_code)
+    node = tree.body[0].value
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.infer_openapi_schema_from_expression(
+        node
+    )
+
+    assert schema == {
+        "type": "array",
+        "items": {
+            "type": "integer",
+        },
+    }
+
+
+def test_infer_openapi_schema_from_expression_detects_array_of_objects(
+    tmp_path,
+):
+    source_code = """
+value = [
+    {
+        "id": 1,
+        "name": "Nima",
+    }
+]
+"""
+
+    tree = ast.parse(source_code)
+    node = tree.body[0].value
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.infer_openapi_schema_from_expression(
+        node
+    )
+
+    assert schema == {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                },
+                "name": {
+                    "type": "string",
+                },
+            },
+        },
+    }
+
+
+def test_infer_openapi_schema_from_expression_returns_empty_for_unknown_expression(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Name(
+        id="user",
+        ctx=ast.Load(),
+    )
+
+    assert generator.infer_openapi_schema_from_expression(node) == {}
+def test_extract_response_schemas_detects_default_200(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    return {
+        "id": 1,
+        "name": "Nima",
+    }
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas == {
+        200: {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                },
+                "name": {
+                    "type": "string",
+                },
+            },
+        },
+    }
+
+
+def test_extract_response_schemas_detects_explicit_status_code(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    return {
+        "id": 1,
+        "created": True,
+    }, 201
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas == {
+        201: {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                },
+                "created": {
+                    "type": "boolean",
+                },
+            },
+        },
+    }
+
+
+def test_extract_response_schemas_supports_jsonify(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    return jsonify({
+        "message": "created",
+        "id": 1,
+    }), 201
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas == {
+        201: {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                },
+                "id": {
+                    "type": "integer",
+                },
+            },
+        },
+    }
+
+
+def test_extract_response_schemas_detects_multiple_status_codes(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    if not found:
+        return {
+            "error": "not found",
+        }, 404
+
+    return {
+        "id": 1,
+        "name": "Nima",
+    }, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert set(schemas.keys()) == {
+        200,
+        404,
+    }
+
+    assert schemas[404] == {
+        "type": "object",
+        "properties": {
+            "error": {
+                "type": "string",
+            },
+        },
+    }
+
+    assert schemas[200] == {
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "integer",
+            },
+            "name": {
+                "type": "string",
+            },
+        },
+    }
+
+
+def test_extract_response_schemas_detects_nested_response(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    return {
+        "user": {
+            "id": 1,
+            "name": "Nima",
+        },
+        "success": True,
+    }, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas[200] == {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                    },
+                    "name": {
+                        "type": "string",
+                    },
+                },
+            },
+            "success": {
+                "type": "boolean",
+            },
+        },
+    }
+
+
+def test_extract_response_schemas_detects_array_response(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    return [
+        {
+            "id": 1,
+            "name": "Nima",
+        }
+    ], 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas[200] == {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                },
+                "name": {
+                    "type": "string",
+                },
+            },
+        },
+    }
+
+
+def test_extract_response_schemas_ignores_dynamic_response(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    result = build_response()
+    return result, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas == {}
+
+
+def test_extract_response_schemas_ignores_dynamic_status_code(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    status_code = 201
+
+    return {
+        "message": "created",
+    }, status_code
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_response_schemas(function)
+
+    assert schemas == {
+        200: {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                },
+            },
+        },
+    }

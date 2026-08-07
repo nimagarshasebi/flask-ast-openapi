@@ -23,6 +23,7 @@ class RouteDefinition:
         str,
         dict[str, Any],
     ] = field(default_factory=dict)
+    response_status_codes: list[int] = field(default_factory=list)
     description: str | None = None
 @dataclass
 class PathParameter:
@@ -192,6 +193,11 @@ class FlaskASTOpenAPI:
                                 function
                             )
                         ),
+                        response_status_codes=(
+                            self.extract_response_status_codes(
+                                function
+                            )
+                        ),
                         description=self.extract_function_description(
                             function
                         ),
@@ -283,11 +289,9 @@ class FlaskASTOpenAPI:
         operation: dict[str, Any] = {
             "operationId": route.function_name,
             "parameters": parameters,
-            "responses": {
-                "200": {
-                    "description": "Successful response",
-                }
-            },
+            "responses": self.build_openapi_responses(
+                    route.response_status_codes
+                ),
         }
 
         if route.uses_json_body:
@@ -802,3 +806,145 @@ class FlaskASTOpenAPI:
                 status_codes.append(status_code)
 
         return status_codes
+    def build_openapi_responses(
+    self,
+    status_codes: list[int],
+) -> dict[str, Any]:
+        """Build OpenAPI responses from HTTP status codes."""
+
+        if not status_codes:
+            status_codes = [200]
+
+        responses: dict[str, Any] = {}
+
+        for status_code in status_codes:
+            responses[str(status_code)] = {
+                "description": f"HTTP {status_code} response",
+            }
+
+        return responses
+    def infer_openapi_schema_from_expression(
+    self,
+    value: ast.expr,
+) -> dict[str, Any]:
+        """Infer an OpenAPI schema from an AST expression."""
+
+        if isinstance(value, ast.Constant):
+            if isinstance(value.value, bool):
+                return {"type": "boolean"}
+
+            if isinstance(value.value, int):
+                return {"type": "integer"}
+
+            if isinstance(value.value, float):
+                return {
+                    "type": "number",
+                    "format": "float",
+                }
+
+            if isinstance(value.value, str):
+                return {"type": "string"}
+
+            if value.value is None:
+                return {"nullable": True}
+
+        if isinstance(value, ast.List):
+            item_schema: dict[str, Any] = {}
+
+            if value.elts:
+                item_schema = self.infer_openapi_schema_from_expression(
+                    value.elts[0]
+                )
+
+            return {
+                "type": "array",
+                "items": item_schema,
+            }
+
+        if isinstance(value, ast.Tuple):
+            return {
+                "type": "array",
+                "items": {},
+            }
+
+        if isinstance(value, ast.Dict):
+            properties: dict[str, Any] = {}
+
+            for key, item_value in zip(
+                value.keys,
+                value.values,
+            ):
+                if not isinstance(key, ast.Constant):
+                    continue
+
+                if not isinstance(key.value, str):
+                    continue
+
+                properties[key.value] = (
+                    self.infer_openapi_schema_from_expression(
+                        item_value
+                    )
+                )
+
+            return {
+                "type": "object",
+                "properties": properties,
+            }
+
+        return {}
+    def extract_response_schemas(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> dict[int, dict[str, Any]]:
+        """Extract response schemas grouped by HTTP status code."""
+
+        response_schemas: dict[int, dict[str, Any]] = {}
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Return):
+                continue
+
+            if node.value is None:
+                continue
+
+            response_value = node.value
+            status_code = 200
+
+            if isinstance(node.value, ast.Tuple):
+                if not node.value.elts:
+                    continue
+
+                response_value = node.value.elts[0]
+
+                if len(node.value.elts) >= 2:
+                    status_node = node.value.elts[1]
+
+                    if (
+                        isinstance(status_node, ast.Constant)
+                        and isinstance(status_node.value, int)
+                    ):
+                        status_code = status_node.value
+
+            if (
+                isinstance(response_value, ast.Call)
+                and isinstance(response_value.func, ast.Name)
+                and response_value.func.id == "jsonify"
+            ):
+                if not response_value.args:
+                    continue
+
+                response_value = response_value.args[0]
+
+            schema = self.infer_openapi_schema_from_expression(
+                response_value
+            )
+
+            if not schema:
+                continue
+
+            response_schemas.setdefault(
+                status_code,
+                schema,
+            )
+
+        return response_schemas

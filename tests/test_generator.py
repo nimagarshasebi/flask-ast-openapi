@@ -4876,3 +4876,1169 @@ def get_users():
             "ApiKeyAuth": [],
         },
     ]
+def test_extract_request_schema_name_from_docstring(
+    tmp_path,
+):
+    source_code = '''
+def register_edge():
+    """
+    Register a new edge device.
+
+    :request: EdgeRegistrationRequestSchema
+    :response: EdgeRegistrationResponseSchema
+    """
+    return {}
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_name = generator.extract_request_schema_name(
+        function
+    )
+
+    assert schema_name == "EdgeRegistrationRequestSchema"
+def test_extract_request_schema_name_returns_none_without_request_tag(
+    tmp_path,
+):
+    source_code = '''
+def health():
+    """Health check."""
+    return {"status": "ok"}
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_name = generator.extract_request_schema_name(
+        function
+    )
+
+    assert schema_name is None
+def test_extract_request_schema_name_returns_none_without_docstring(
+    tmp_path,
+):
+    tree = ast.parse(
+        """
+def health():
+    return {"status": "ok"}
+"""
+    )
+
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_name = generator.extract_request_schema_name(
+        function
+    )
+
+    assert schema_name is None
+def test_extract_response_schema_name_from_docstring(
+    tmp_path,
+):
+    source_code = '''
+def register_edge():
+    """
+    Register a new edge device.
+
+    :request: EdgeRegistrationRequestSchema
+    :response: EdgeRegistrationResponseSchema
+    """
+    return {}
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_name = generator.extract_response_schema_name(
+        function
+    )
+
+    assert schema_name == "EdgeRegistrationResponseSchema"
+def test_extract_response_schema_name_returns_none_without_response_tag(
+    tmp_path,
+):
+    source_code = '''
+def health():
+    """
+    Health check.
+
+    :request: HealthRequestSchema
+    """
+    return {"status": "ok"}
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_name = generator.extract_response_schema_name(
+        function
+    )
+
+    assert schema_name is None
+def test_extract_response_schema_name_returns_none_without_docstring(
+    tmp_path,
+):
+    tree = ast.parse(
+        """
+def health():
+    return {"status": "ok"}
+"""
+    )
+
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_name = generator.extract_response_schema_name(
+        function
+    )
+
+    assert schema_name is None
+def test_find_schema_class_returns_matching_class(
+    tmp_path,
+):
+    source_code = """
+class EdgeRegistrationRequestSchema(Schema):
+    license_token = fields.String(required=True)
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_class = generator.find_schema_class(
+        tree,
+        "EdgeRegistrationRequestSchema",
+    )
+
+    assert schema_class is not None
+    assert isinstance(schema_class, ast.ClassDef)
+    assert schema_class.name == "EdgeRegistrationRequestSchema"
+def test_find_schema_class_returns_none_when_missing(
+    tmp_path,
+):
+    source_code = """
+class AnotherSchema(Schema):
+    name = fields.String()
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_class = generator.find_schema_class(
+        tree,
+        "EdgeRegistrationRequestSchema",
+    )
+
+    assert schema_class is None
+def test_find_schema_class_matches_exact_name(
+    tmp_path,
+):
+    source_code = """
+class EdgeRegistrationRequestSchemaV2(Schema):
+    name = fields.String()
+
+class EdgeRegistrationRequestSchema(Schema):
+    license_token = fields.String()
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema_class = generator.find_schema_class(
+        tree,
+        "EdgeRegistrationRequestSchema",
+    )
+
+    assert schema_class is not None
+    assert schema_class.name == "EdgeRegistrationRequestSchema"
+def test_extract_marshmallow_fields_extracts_names_types_and_required(
+    tmp_path,
+):
+    source_code = """
+class EdgeRegistrationRequestSchema(Schema):
+    license_token = fields.String(required=True)
+    device_type = fields.String(required=True)
+    location_id = fields.Integer(required=False)
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields == {
+        "license_token": {
+            "field_type": "String",
+            "required": True,
+        },
+        "device_type": {
+            "field_type": "String",
+            "required": True,
+        },
+        "location_id": {
+            "field_type": "Integer",
+            "required": False,
+        },
+    }
+def test_extract_marshmallow_fields_defaults_required_to_false(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    name = fields.String()
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["name"] == {
+        "field_type": "String",
+        "required": False,
+    }
+def test_extract_marshmallow_fields_supports_multiple_field_types(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    name = fields.String()
+    age = fields.Integer()
+    score = fields.Float()
+    active = fields.Boolean()
+    tags = fields.List(fields.String())
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["name"]["field_type"] == "String"
+    assert extracted_fields["age"]["field_type"] == "Integer"
+    assert extracted_fields["score"]["field_type"] == "Float"
+    assert extracted_fields["active"]["field_type"] == "Boolean"
+    assert extracted_fields["tags"]["field_type"] == "List"
+def test_extract_marshmallow_fields_ignores_non_field_assignments(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    name = fields.String()
+    version = 1
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert "name" in extracted_fields
+    assert "version" not in extracted_fields
+def test_marshmallow_field_type_to_openapi_schema_converts_string(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.marshmallow_field_type_to_openapi_schema(
+        "String"
+    )
+
+    assert schema == {
+        "type": "string",
+    }
+def test_marshmallow_field_type_to_openapi_schema_converts_numeric_types(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.marshmallow_field_type_to_openapi_schema(
+        "Integer"
+    ) == {
+        "type": "integer",
+    }
+
+    assert generator.marshmallow_field_type_to_openapi_schema(
+        "Float"
+    ) == {
+        "type": "number",
+        "format": "float",
+    }
+def test_marshmallow_field_type_to_openapi_schema_converts_special_types(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.marshmallow_field_type_to_openapi_schema(
+        "Boolean"
+    ) == {
+        "type": "boolean",
+    }
+
+    assert generator.marshmallow_field_type_to_openapi_schema(
+        "DateTime"
+    ) == {
+        "type": "string",
+        "format": "date-time",
+    }
+
+    assert generator.marshmallow_field_type_to_openapi_schema(
+        "UUID"
+    ) == {
+        "type": "string",
+        "format": "uuid",
+    }
+def test_marshmallow_field_type_to_openapi_schema_defaults_unknown_to_string(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.marshmallow_field_type_to_openapi_schema(
+        "CustomField"
+    )
+
+    assert schema == {
+        "type": "string",
+    }
+def test_extract_marshmallow_fields_extracts_list_item_type(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    tags = fields.List(fields.String())
+    ids = fields.List(
+        fields.Integer(),
+        required=True,
+    )
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["tags"] == {
+        "field_type": "List",
+        "required": False,
+        "item_type": "String",
+    }
+
+    assert extracted_fields["ids"] == {
+        "field_type": "List",
+        "required": True,
+        "item_type": "Integer",
+    }
+def test_extract_marshmallow_fields_does_not_add_item_type_to_non_list(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    name = fields.String(required=True)
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["name"] == {
+        "field_type": "String",
+        "required": True,
+    }
+def test_build_openapi_schema_from_marshmallow_fields(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = {
+        "name": {
+            "field_type": "String",
+            "required": True,
+        },
+        "age": {
+            "field_type": "Integer",
+            "required": False,
+        },
+        "tags": {
+            "field_type": "List",
+            "required": True,
+            "item_type": "String",
+        },
+    }
+
+    schema = generator.build_openapi_schema_from_marshmallow_fields(
+        extracted_fields
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+            "age": {
+                "type": "integer",
+            },
+            "tags": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                },
+            },
+        },
+        "required": [
+            "name",
+            "tags",
+        ],
+    }
+def test_build_openapi_schema_from_marshmallow_fields_omits_required_when_empty(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = {
+        "name": {
+            "field_type": "String",
+            "required": False,
+        },
+    }
+
+    schema = generator.build_openapi_schema_from_marshmallow_fields(
+        extracted_fields
+    )
+
+    assert "required" not in schema
+def test_build_request_schema_from_docstring(
+    tmp_path,
+):
+    source_code = '''
+class EdgeRegistrationRequestSchema(Schema):
+    license_token = fields.String(required=True)
+    device_type = fields.String(required=True)
+    location_id = fields.Integer()
+
+
+@app.post("/api/edges/registrations")
+def register_edge():
+    """
+    Register a new edge device.
+
+    :request: EdgeRegistrationRequestSchema
+    """
+    return {}, 201
+'''
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "register_edge"
+    )
+
+    schema = generator.build_request_schema_from_docstring(
+        tree,
+        function,
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "license_token": {
+                "type": "string",
+            },
+            "device_type": {
+                "type": "string",
+            },
+            "location_id": {
+                "type": "integer",
+            },
+        },
+        "required": [
+            "license_token",
+            "device_type",
+        ],
+    }
+def test_build_request_schema_from_docstring_returns_none_when_schema_missing(
+    tmp_path,
+):
+    source_code = '''
+@app.post("/users")
+def create_user():
+    """
+    Create a user.
+
+    :request: MissingSchema
+    """
+    return {}, 201
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_request_schema_from_docstring(
+        tree,
+        function,
+    )
+
+    assert schema is None
+def test_build_request_schema_from_docstring_returns_none_without_request_tag(
+    tmp_path,
+):
+    source_code = '''
+@app.get("/health")
+def health():
+    """Health check."""
+    return {"status": "ok"}
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_request_schema_from_docstring(
+        tree,
+        function,
+    )
+
+    assert schema is None
+def test_extract_routes_includes_request_schema_from_docstring(
+    tmp_path,
+):
+    source_code = '''
+class EdgeRegistrationRequestSchema(Schema):
+    license_token = fields.String(required=True)
+    device_type = fields.String(required=True)
+    location_id = fields.Integer()
+
+
+@app.post("/api/edges/registrations")
+def register_edge():
+    """
+    Register a new edge device.
+
+    :request: EdgeRegistrationRequestSchema
+    """
+    return {}, 201
+'''
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+
+    assert routes[0].request_schema == {
+        "type": "object",
+        "properties": {
+            "license_token": {
+                "type": "string",
+            },
+            "device_type": {
+                "type": "string",
+            },
+            "location_id": {
+                "type": "integer",
+            },
+        },
+        "required": [
+            "license_token",
+            "device_type",
+        ],
+    }
+def test_extract_routes_has_no_request_schema_without_request_tag(
+    tmp_path,
+):
+    source_code = '''
+@app.get("/health")
+def health():
+    """Health check."""
+    return {"status": "ok"}
+'''
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].request_schema is None
+def test_build_openapi_operation_uses_request_schema_from_route(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="register_edge",
+        path="/api/edges/registrations",
+        methods=["POST"],
+        uses_json_body=True,
+        request_schema={
+            "type": "object",
+            "properties": {
+                "license_token": {
+                    "type": "string",
+                },
+                "device_type": {
+                    "type": "string",
+                },
+            },
+            "required": [
+                "license_token",
+                "device_type",
+            ],
+        },
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "type": "object",
+        "properties": {
+            "license_token": {
+                "type": "string",
+            },
+            "device_type": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "license_token",
+            "device_type",
+        ],
+    }
+def test_build_openapi_operation_falls_back_to_inferred_json_schema(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="create_user",
+        path="/users",
+        methods=["POST"],
+        uses_json_body=True,
+        json_body_field_names=[
+            "name",
+        ],
+        required_json_body_field_names=[
+            "name",
+        ],
+        json_body_field_schemas={
+            "name": {
+                "type": "string",
+            },
+        },
+        request_schema=None,
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    schema = operation[
+        "requestBody"
+    ]["content"]["application/json"]["schema"]
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "name",
+        ],
+    }
+def test_generate_includes_marshmallow_request_schema(
+    tmp_path,
+):
+    controller_file = tmp_path / "edge_controller.py"
+
+    controller_file.write_text(
+        '''
+from flask import Flask, request
+from marshmallow import Schema, fields
+
+app = Flask(__name__)
+
+
+class EdgeRegistrationRequestSchema(Schema):
+    license_token = fields.String(required=True)
+    device_type = fields.String(required=True)
+    location_id = fields.Integer()
+
+
+@app.post("/api/edges/registrations")
+def register_edge():
+    """
+    Register a new edge device.
+
+    :request: EdgeRegistrationRequestSchema
+    """
+    data = request.get_json()
+    return {}, 201
+''',
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    schema = spec[
+        "paths"
+    ][
+        "/api/edges/registrations"
+    ][
+        "post"
+    ][
+        "requestBody"
+    ][
+        "content"
+    ][
+        "application/json"
+    ][
+        "schema"
+    ]
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "license_token": {
+                "type": "string",
+            },
+            "device_type": {
+                "type": "string",
+            },
+            "location_id": {
+                "type": "integer",
+            },
+        },
+        "required": [
+            "license_token",
+            "device_type",
+        ],
+    }
+def test_build_response_schema_from_docstring(
+    tmp_path,
+):
+    source_code = '''
+class EdgeRegistrationResponseSchema(Schema):
+    success = fields.Boolean(required=True)
+    device_name = fields.String(required=True)
+    message = fields.String()
+
+
+@app.post("/api/edges/registrations")
+def register_edge():
+    """
+    Register a new edge device.
+
+    :response: EdgeRegistrationResponseSchema
+    """
+    return {}, 201
+'''
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "register_edge"
+    )
+
+    schema = generator.build_response_schema_from_docstring(
+        tree,
+        function,
+    )
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "success": {
+                "type": "boolean",
+            },
+            "device_name": {
+                "type": "string",
+            },
+            "message": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "success",
+            "device_name",
+        ],
+    }
+def test_build_response_schema_from_docstring_returns_none_when_schema_missing(
+    tmp_path,
+):
+    source_code = '''
+@app.get("/users")
+def get_users():
+    """
+    Get users.
+
+    :response: MissingSchema
+    """
+    return [], 200
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_response_schema_from_docstring(
+        tree,
+        function,
+    )
+
+    assert schema is None
+def test_build_response_schema_from_docstring_returns_none_without_response_tag(
+    tmp_path,
+):
+    source_code = '''
+@app.get("/health")
+def health():
+    """Health check."""
+    return {"status": "ok"}
+'''
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schema = generator.build_response_schema_from_docstring(
+        tree,
+        function,
+    )
+
+    assert schema is None
+def test_extract_routes_includes_response_schema_from_docstring(
+    tmp_path,
+):
+    source_code = '''
+class EdgeRegistrationResponseSchema(Schema):
+    success = fields.Boolean(required=True)
+    device_name = fields.String(required=True)
+    message = fields.String()
+
+
+@app.post("/api/edges/registrations")
+def register_edge():
+    """
+    Register a new edge device.
+
+    :response: EdgeRegistrationResponseSchema
+    """
+    return {}, 201
+'''
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+
+    assert routes[0].response_schema == {
+        "type": "object",
+        "properties": {
+            "success": {
+                "type": "boolean",
+            },
+            "device_name": {
+                "type": "string",
+            },
+            "message": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "success",
+            "device_name",
+        ],
+    }
+def test_extract_routes_has_no_response_schema_without_response_tag(
+    tmp_path,
+):
+    source_code = '''
+@app.get("/health")
+def health():
+    """Health check."""
+    return {"status": "ok"}
+'''
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].response_schema is None
+def test_find_success_status_code_returns_first_success_code(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_code = generator.find_success_status_code(
+        [201, 500]
+    )
+
+    assert status_code == 201
+def test_find_success_status_code_returns_first_2xx_code(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_code = generator.find_success_status_code(
+        [400, 204, 201, 500]
+    )
+
+    assert status_code == 204
+def test_find_success_status_code_defaults_to_200(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_code = generator.find_success_status_code(
+        [400, 404, 500]
+    )
+
+    assert status_code == 200
+def test_find_success_status_code_defaults_to_200_when_empty(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_code = generator.find_success_status_code(
+        []
+    )
+
+    assert status_code == 200
+
+def test_build_openapi_operation_applies_response_schema_to_success_status(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="register_edge",
+        path="/api/edges/registrations",
+        methods=["POST"],
+        response_status_codes=[
+            201,
+            500,
+        ],
+        response_schemas={
+            500: {
+                "type": "object",
+                "properties": {
+                    "error": {
+                        "type": "string",
+                    },
+                },
+            },
+        },
+        response_schema={
+            "type": "object",
+            "properties": {
+                "success": {
+                    "type": "boolean",
+                },
+                "device_name": {
+                    "type": "string",
+                },
+            },
+        },
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["responses"]["201"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "success": {
+                "type": "boolean",
+            },
+            "device_name": {
+                "type": "string",
+            },
+        },
+    }
+
+    assert operation["responses"]["500"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "error": {
+                "type": "string",
+            },
+        },
+    }
+def test_build_openapi_operation_adds_default_200_for_response_schema(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_user",
+        path="/users/1",
+        methods=["GET"],
+        response_status_codes=[
+            404,
+        ],
+        response_schema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                },
+            },
+        },
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert "200" in operation["responses"]
+
+    assert operation["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"] == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+        },
+    }
+def test_generate_includes_marshmallow_response_schema(
+    tmp_path,
+):
+    controller_file = tmp_path / "edge_controller.py"
+
+    controller_file.write_text(
+        '''
+from flask import Flask
+from marshmallow import Schema, fields
+
+app = Flask(__name__)
+
+
+class EdgeRegistrationResponseSchema(Schema):
+    success = fields.Boolean(required=True)
+    device_name = fields.String(required=True)
+    message = fields.String()
+
+
+@app.post("/api/edges/registrations")
+def register_edge():
+    """
+    Register a new edge device.
+
+    :response: EdgeRegistrationResponseSchema
+    """
+    return {
+        "success": True,
+        "device_name": "edge-1",
+        "message": "registered",
+    }, 201
+''',
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    response_schema = spec[
+        "paths"
+    ][
+        "/api/edges/registrations"
+    ][
+        "post"
+    ][
+        "responses"
+    ][
+        "201"
+    ][
+        "content"
+    ][
+        "application/json"
+    ][
+        "schema"
+    ]
+
+    assert response_schema == {
+        "type": "object",
+        "properties": {
+            "success": {
+                "type": "boolean",
+            },
+            "device_name": {
+                "type": "string",
+            },
+            "message": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "success",
+            "device_name",
+        ],
+    }

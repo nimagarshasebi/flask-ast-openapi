@@ -32,6 +32,8 @@ class RouteDefinition:
     auth_schemes: list[str] = field(default_factory=list)
     auth_scheme_mode: str = "and"
     description: str | None = None
+    request_schema: dict[str, Any] | None = None
+    response_schema: dict[str, Any] | None = None
 @dataclass
 class PathParameter:
     """A parameter extracted from a Flask route path."""
@@ -252,6 +254,10 @@ class FlaskASTOpenAPI:
                                 function
                             )
                         ),
+                        request_schema=self.build_request_schema_from_docstring(
+                            tree,
+                            function,
+                        ),
                         uses_json_body=(
                             self.function_uses_json_body(
                                 function
@@ -297,6 +303,12 @@ class FlaskASTOpenAPI:
                         description=(
                             self.extract_function_description(
                                 function
+                            )
+                        ),
+                        response_schema=(
+                            self.build_response_schema_from_docstring(
+                                tree,
+                                function,
                             )
                         ),
                     )
@@ -385,29 +397,54 @@ class FlaskASTOpenAPI:
                 route.query_parameter_names
             )
         )
+        response_status_codes = list(
+            route.response_status_codes
+        )
 
+        response_schemas = dict(
+            route.response_schemas
+        )
+
+        if route.response_schema is not None:
+            success_status_code = self.find_success_status_code(
+                response_status_codes
+            )
+
+            response_schemas[
+                success_status_code
+            ] = route.response_schema
+
+            if success_status_code not in response_status_codes:
+                response_status_codes.append(
+                    success_status_code
+                )
         operation: dict[str, Any] = {
             "operationId": route.function_name,
             "parameters": parameters,
             "responses": self.build_openapi_responses(
-                route.response_status_codes,
-                route.response_schemas,
+                response_status_codes,
+                response_schemas,
             ),
         }
 
         if route.uses_json_body:
+            request_schema = route.request_schema
+
+            if request_schema is None:
+                request_schema = self.build_json_body_schema(
+                    route.json_body_field_names,
+                    route.required_json_body_field_names,
+                    route.json_body_field_schemas,
+                )
+
             operation["requestBody"] = {
                 "required": True,
                 "content": {
                     "application/json": {
-                        "schema": self.build_json_body_schema(
-                            route.json_body_field_names,
-                            route.required_json_body_field_names,
-                            route.json_body_field_schemas,
-                        )
+                        "schema": request_schema,
                     }
                 },
-            }
+        }
 
         if route.description:
             operation["description"] = route.description
@@ -1259,3 +1296,280 @@ class FlaskASTOpenAPI:
                     return decorator.func.id
 
         return None
+    def extract_request_schema_name(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> str | None:
+        """Extract a request schema name from the function docstring."""
+
+        docstring = ast.get_docstring(function)
+
+        if not docstring:
+            return None
+
+        match = re.search(
+            r"^\s*:request:\s*(\w+)",
+            docstring,
+            re.MULTILINE,
+        )
+
+        if match is None:
+            return None
+
+        return match.group(1)
+    def extract_response_schema_name(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> str | None:
+        """Extract a response schema name from the function docstring."""
+
+        docstring = ast.get_docstring(function)
+
+        if not docstring:
+            return None
+
+        match = re.search(
+            r"^\s*:response:\s*(\w+)",
+            docstring,
+            re.MULTILINE,
+        )
+
+        if match is None:
+            return None
+
+        return match.group(1)
+    def find_schema_class(
+    self,
+    tree: ast.Module,
+    schema_name: str,
+) -> ast.ClassDef | None:
+        """Find a schema class by name in an AST module."""
+
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+
+            if node.name == schema_name:
+                return node
+
+        return None
+    def extract_marshmallow_fields(
+    self,
+    schema_class: ast.ClassDef,
+) -> dict[str, dict[str, Any]]:
+        """Extract Marshmallow field definitions from a schema class."""
+
+        extracted_fields: dict[str, dict[str, Any]] = {}
+
+        for node in schema_class.body:
+            if not isinstance(node, ast.Assign):
+                continue
+
+            if len(node.targets) != 1:
+                continue
+
+            target = node.targets[0]
+
+            if not isinstance(target, ast.Name):
+                continue
+
+            if not isinstance(node.value, ast.Call):
+                continue
+
+            if not isinstance(node.value.func, ast.Attribute):
+                continue
+
+            field_type = node.value.func.attr
+
+            required = False
+            item_type: str | None = None
+
+            for keyword in node.value.keywords:
+                if keyword.arg != "required":
+                    continue
+
+                if (
+                    isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, bool)
+                ):
+                    required = keyword.value.value
+
+            if field_type == "List" and node.value.args:
+                inner_field = node.value.args[0]
+
+                if (
+                    isinstance(inner_field, ast.Call)
+                    and isinstance(inner_field.func, ast.Attribute)
+                ):
+                    item_type = inner_field.func.attr
+
+            field_info: dict[str, Any] = {
+                "field_type": field_type,
+                "required": required,
+            }
+
+            if item_type is not None:
+                field_info["item_type"] = item_type
+
+            extracted_fields[target.id] = field_info
+
+        return extracted_fields
+    def marshmallow_field_type_to_openapi_schema(
+    self,
+    field_type: str,
+) -> dict[str, Any]:
+        """Convert a Marshmallow field type to an OpenAPI schema."""
+
+        schemas: dict[str, dict[str, Any]] = {
+            "String": {
+                "type": "string",
+            },
+            "Integer": {
+                "type": "integer",
+            },
+            "Float": {
+                "type": "number",
+                "format": "float",
+            },
+            "Boolean": {
+                "type": "boolean",
+            },
+            "DateTime": {
+                "type": "string",
+                "format": "date-time",
+            },
+            "Date": {
+                "type": "string",
+                "format": "date",
+            },
+            "UUID": {
+                "type": "string",
+                "format": "uuid",
+            },
+            "Dict": {
+                "type": "object",
+            },
+            "List": {
+                "type": "array",
+                "items": {},
+            },
+            "Raw": {},
+        }
+
+        return schemas.get(
+            field_type,
+            {
+                "type": "string",
+            },
+        )
+    def build_openapi_schema_from_marshmallow_fields(
+    self,
+    extracted_fields: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+        """Build an OpenAPI object schema from Marshmallow fields."""
+
+        properties: dict[str, Any] = {}
+        required_fields: list[str] = []
+
+        for field_name, field_info in extracted_fields.items():
+            field_type = field_info["field_type"]
+
+            field_schema = self.marshmallow_field_type_to_openapi_schema(
+                field_type
+            )
+
+            if field_type == "List":
+                item_type = field_info.get("item_type")
+
+                if item_type is not None:
+                    field_schema["items"] = (
+                        self.marshmallow_field_type_to_openapi_schema(
+                            item_type
+                        )
+                    )
+
+            properties[field_name] = field_schema
+
+            if field_info.get("required"):
+                required_fields.append(field_name)
+
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": properties,
+        }
+
+        if required_fields:
+            schema["required"] = required_fields
+
+        return schema
+    def build_request_schema_from_docstring(
+    self,
+    tree: ast.Module,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> dict[str, Any] | None:
+        """Build a request schema from a docstring-referenced Marshmallow schema."""
+
+        schema_name = self.extract_request_schema_name(
+            function
+        )
+
+        if schema_name is None:
+            return None
+
+        schema_class = self.find_schema_class(
+            tree,
+            schema_name,
+        )
+
+        if schema_class is None:
+            return None
+
+        extracted_fields = self.extract_marshmallow_fields(
+            schema_class
+        )
+
+        return self.build_openapi_schema_from_marshmallow_fields(
+            extracted_fields
+        )
+
+        return None
+    def build_response_schema_from_docstring(
+    self,
+    tree: ast.Module,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> dict[str, Any] | None:
+        """Build a response schema from a docstring-referenced Marshmallow schema."""
+
+        schema_name = self.extract_response_schema_name(
+            function
+        )
+
+        if schema_name is None:
+            return None
+
+        schema_class = self.find_schema_class(
+            tree,
+            schema_name,
+        )
+
+        if schema_class is None:
+            return None
+
+        extracted_fields = self.extract_marshmallow_fields(
+            schema_class
+        )
+
+        return self.build_openapi_schema_from_marshmallow_fields(
+            extracted_fields
+        )
+    def find_success_status_code(
+    self,
+    status_codes: list[int],
+) -> int:
+        """Find the primary successful HTTP status code."""
+
+        for status_code in status_codes:
+            if 200 <= status_code < 300:
+                return status_code
+
+        return 200

@@ -19,6 +19,10 @@ class RouteDefinition:
     required_json_body_field_names: list[str] = field(
         default_factory=list
     )
+    json_body_field_schemas: dict[
+        str,
+        dict[str, Any],
+    ] = field(default_factory=dict)
     description: str | None = None
 @dataclass
 class PathParameter:
@@ -183,6 +187,11 @@ class FlaskASTOpenAPI:
                                 function
                             )
                         ),
+                        json_body_field_schemas=(
+                            self.extract_json_body_field_schemas(
+                                function
+                            )
+                        ),
                         description=self.extract_function_description(
                             function
                         ),
@@ -289,6 +298,7 @@ class FlaskASTOpenAPI:
                         "schema": self.build_json_body_schema(
                             route.json_body_field_names,
                             route.required_json_body_field_names,
+                            route.json_body_field_schemas,
                         )
                     }
                 },
@@ -521,19 +531,18 @@ class FlaskASTOpenAPI:
                     field_names.append(node.slice.value)
 
         return field_names
-    def build_json_body_schema(
-    self,
-    field_names: list[str],
-    required_field_names: list[str] | None = None,
-) -> dict[str, Any]:
+    def build_json_body_schema(self,field_names: list[str],required_field_names: list[str] | None = None,field_schemas: dict[str, dict[str, Any]] | None = None,) -> dict[str, Any]:
         """Build an OpenAPI schema for JSON body fields."""
 
-        properties = {
-            field_name: {
-                "type": "string",
-            }
-            for field_name in field_names
-        }
+        properties: dict[str, Any] = {}
+
+        for field_name in field_names:
+            if field_schemas and field_name in field_schemas:
+                properties[field_name] = field_schemas[field_name]
+            else:
+                properties[field_name] = {
+                    "type": "string",
+                }
 
         schema: dict[str, Any] = {
             "type": "object",

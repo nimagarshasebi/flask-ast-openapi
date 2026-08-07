@@ -2107,3 +2107,197 @@ def get_users():
     )
 
     assert schemas == {}
+def test_extract_routes_includes_json_body_field_schemas(
+    tmp_path,
+):
+    source_code = """
+@app.post("/users")
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name", "")
+    age = data.get("age", 0)
+    active = data.get("active", False)
+    email = data["email"]
+
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+
+    route = routes[0]
+
+    assert route.json_body_field_schemas == {
+        "name": {
+            "type": "string",
+        },
+        "age": {
+            "type": "integer",
+        },
+        "active": {
+            "type": "boolean",
+        },
+        "email": {
+            "type": "string",
+        },
+    }
+def test_extract_routes_keeps_required_and_schema_information(
+    tmp_path,
+):
+    source_code = """
+@app.post("/users")
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name", "")
+    age = data.get("age", 0)
+    email = data["email"]
+
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    route = routes[0]
+
+    assert route.json_body_field_names == [
+        "name",
+        "age",
+        "email",
+    ]
+
+    assert route.required_json_body_field_names == [
+        "email",
+    ]
+
+    assert route.json_body_field_schemas == {
+        "name": {"type": "string"},
+        "age": {"type": "integer"},
+        "email": {"type": "string"},
+    }
+def test_build_openapi_operation_uses_inferred_json_field_schemas(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="create_user",
+        path="/users",
+        methods=["POST"],
+        uses_json_body=True,
+        json_body_field_names=[
+            "name",
+            "age",
+            "active",
+            "email",
+        ],
+        required_json_body_field_names=[
+            "email",
+        ],
+        json_body_field_schemas={
+            "name": {
+                "type": "string",
+            },
+            "age": {
+                "type": "integer",
+            },
+            "active": {
+                "type": "boolean",
+            },
+            "email": {
+                "type": "string",
+            },
+        },
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    schema = operation["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+            "age": {
+                "type": "integer",
+            },
+            "active": {
+                "type": "boolean",
+            },
+            "email": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "email",
+        ],
+    }
+def test_generate_includes_inferred_json_types(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+from flask import request
+
+
+@app.post("/users")
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name", "")
+    age = data.get("age", 0)
+    score = data.get("score", 0.0)
+    active = data.get("active", False)
+    email = data["email"]
+
+    return {}
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    schema = spec["paths"]["/users"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"]
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+            "age": {
+                "type": "integer",
+            },
+            "score": {
+                "type": "number",
+                "format": "float",
+            },
+            "active": {
+                "type": "boolean",
+            },
+            "email": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "email",
+        ],
+    }

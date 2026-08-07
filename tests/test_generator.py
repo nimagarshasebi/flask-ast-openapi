@@ -3315,3 +3315,137 @@ def get_user(user_id):
             },
         },
     }
+def test_extract_blueprint_prefixes_detects_single_blueprint(
+    tmp_path,
+):
+    source_code = """
+users_bp = Blueprint(
+    "users",
+    __name__,
+    url_prefix="/api/users",
+)
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    prefixes = generator.extract_blueprint_prefixes(tree)
+
+    assert prefixes == {
+        "users_bp": "/api/users",
+    }
+
+
+def test_extract_blueprint_prefixes_supports_multiple_blueprints(
+    tmp_path,
+):
+    source_code = """
+users_bp = Blueprint(
+    "users",
+    __name__,
+    url_prefix="/api/users",
+)
+
+admin_bp = Blueprint(
+    "admin",
+    __name__,
+    url_prefix="/api/admin",
+)
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    prefixes = generator.extract_blueprint_prefixes(tree)
+
+    assert prefixes == {
+        "users_bp": "/api/users",
+        "admin_bp": "/api/admin",
+    }
+
+
+def test_extract_blueprint_prefixes_defaults_to_empty_prefix(
+    tmp_path,
+):
+    source_code = """
+health_bp = Blueprint(
+    "health",
+    __name__,
+)
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    prefixes = generator.extract_blueprint_prefixes(tree)
+
+    assert prefixes == {
+        "health_bp": "",
+    }
+
+
+def test_extract_blueprint_prefixes_ignores_unrelated_assignments(
+    tmp_path,
+):
+    source_code = """
+name = "users"
+
+value = create_something()
+
+users_bp = Blueprint(
+    "users",
+    __name__,
+    url_prefix="/api/users",
+)
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    prefixes = generator.extract_blueprint_prefixes(tree)
+
+    assert prefixes == {
+        "users_bp": "/api/users",
+    }
+
+
+def test_extract_blueprint_prefixes_ignores_dynamic_prefix(
+    tmp_path,
+):
+    source_code = """
+API_PREFIX = "/api/users"
+
+users_bp = Blueprint(
+    "users",
+    __name__,
+    url_prefix=API_PREFIX,
+)
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    prefixes = generator.extract_blueprint_prefixes(tree)
+
+    assert prefixes == {
+        "users_bp": "",
+    }
+
+
+def test_extract_blueprint_prefixes_ignores_attribute_based_blueprint_call(
+    tmp_path,
+):
+    source_code = """
+users_bp = flask.Blueprint(
+    "users",
+    __name__,
+    url_prefix="/api/users",
+)
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    prefixes = generator.extract_blueprint_prefixes(tree)
+
+    assert prefixes == {}

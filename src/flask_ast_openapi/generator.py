@@ -973,3 +973,43 @@ class FlaskASTOpenAPI:
             )
 
         return response_schemas
+    def extract_blueprint_prefixes(
+    self,
+    tree: ast.Module,
+) -> dict[str, str]:
+        """Extract Blueprint variable names and URL prefixes."""
+
+        prefixes: dict[str, str] = {}
+
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+
+            if not isinstance(node.value, ast.Call):
+                continue
+
+            call = node.value
+
+            if not isinstance(call.func, ast.Name):
+                continue
+
+            if call.func.id != "Blueprint":
+                continue
+
+            prefix = ""
+
+            for keyword in call.keywords:
+                if keyword.arg != "url_prefix":
+                    continue
+
+                if (
+                    isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ):
+                    prefix = keyword.value.value
+
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    prefixes[target.id] = prefix
+
+        return prefixes

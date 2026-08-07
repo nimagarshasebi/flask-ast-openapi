@@ -156,12 +156,14 @@ class FlaskASTOpenAPI:
 
         return route_functions
     def extract_routes(
-        self,
-        tree: ast.Module,
-    ) -> list[RouteDefinition]:
+    self,
+    tree: ast.Module,
+) -> list[RouteDefinition]:
         """Extract route definitions from an AST module."""
 
         routes: list[RouteDefinition] = []
+
+        blueprint_prefixes = self.extract_blueprint_prefixes(tree)
 
         for function in self.find_route_functions(tree):
             for decorator in function.decorator_list:
@@ -172,6 +174,14 @@ class FlaskASTOpenAPI:
 
                 if path is None:
                     continue
+
+                owner = self.extract_decorator_owner(decorator)
+
+                if owner in blueprint_prefixes:
+                    path = self.combine_url_prefix_and_path(
+                        blueprint_prefixes[owner],
+                        path,
+                    )
 
                 routes.append(
                     RouteDefinition(
@@ -202,11 +212,13 @@ class FlaskASTOpenAPI:
                                 function
                             )
                         ),
+                        response_schemas=(
+                            self.extract_response_schemas(
+                                function
+                            )
+                        ),
                         description=self.extract_function_description(
                             function
-                        ),
-                        response_schemas=(
-                            self.extract_response_schemas(function)
                         ),
                     )
                 )

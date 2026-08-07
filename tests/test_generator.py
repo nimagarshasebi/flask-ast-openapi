@@ -3627,3 +3627,107 @@ def test_combine_url_prefix_and_path_handles_empty_prefix_and_path(
     )
 
     assert result == "/"
+def test_extract_routes_applies_blueprint_url_prefix(
+    tmp_path,
+):
+    source_code = """
+users_bp = Blueprint(
+    "users",
+    __name__,
+    url_prefix="/api/users",
+)
+
+
+@users_bp.get("/<int:user_id>")
+def get_user(user_id):
+    return {
+        "id": 1,
+    }, 200
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].path == "/api/users/<int:user_id>"
+    assert routes[0].methods == ["GET"]
+def test_extract_routes_applies_blueprint_prefix_to_route_decorator(
+    tmp_path,
+):
+    source_code = """
+admin_bp = Blueprint(
+    "admin",
+    __name__,
+    url_prefix="/api/admin",
+)
+
+
+@admin_bp.route(
+    "/users",
+    methods=["POST"],
+)
+def create_user():
+    return {
+        "created": True,
+    }, 201
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].path == "/api/admin/users"
+    assert routes[0].methods == ["POST"]
+def test_generate_includes_blueprint_prefix_in_openapi_path(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+from flask import Blueprint
+
+
+users_bp = Blueprint(
+    "users",
+    __name__,
+    url_prefix="/api/users",
+)
+
+
+@users_bp.get("/<int:user_id>")
+def get_user(user_id):
+    return {
+        "id": 1,
+        "name": "Nima",
+    }, 200
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    assert "/api/users/{user_id}" in spec["paths"]
+
+    operation = spec["paths"][
+        "/api/users/{user_id}"
+    ]["get"]
+
+    assert operation["operationId"] == "get_user"
+
+    assert operation["parameters"] == [
+        {
+            "name": "user_id",
+            "in": "path",
+            "required": True,
+            "schema": {
+                "type": "integer",
+            },
+        }
+    ]

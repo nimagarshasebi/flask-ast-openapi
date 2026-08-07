@@ -3538,3 +3538,92 @@ def get_users():
     generator = FlaskASTOpenAPI(tmp_path)
 
     assert generator.extract_decorator_owner(decorator) is None
+def test_combine_url_prefix_and_path_combines_normal_values(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "/api/users",
+        "/<int:user_id>",
+    )
+
+    assert result == "/api/users/<int:user_id>"
+
+
+def test_combine_url_prefix_and_path_removes_duplicate_slashes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "/api/users/",
+        "/create",
+    )
+
+    assert result == "/api/users/create"
+
+
+def test_combine_url_prefix_and_path_supports_empty_prefix(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "",
+        "/health",
+    )
+
+    assert result == "/health"
+
+
+def test_combine_url_prefix_and_path_supports_path_without_leading_slash(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "/api",
+        "users",
+    )
+
+    assert result == "/api/users"
+
+
+def test_combine_url_prefix_and_path_supports_empty_path(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "/api/users",
+        "",
+    )
+
+    assert result == "/api/users"
+
+
+def test_combine_url_prefix_and_path_supports_root_path(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "/api/users",
+        "/",
+    )
+
+    assert result == "/api/users"
+
+
+def test_combine_url_prefix_and_path_handles_empty_prefix_and_path(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.combine_url_prefix_and_path(
+        "",
+        "",
+    )
+
+    assert result == "/"

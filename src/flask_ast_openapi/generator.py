@@ -1031,3 +1031,21 @@ class FlaskASTOpenAPI:
             return None
 
         return owner.id
+    def combine_url_prefix_and_path(
+    self,
+    prefix: str,
+    path: str,
+) -> str:
+        """Combine a Blueprint URL prefix with a route path."""
+
+        normalized_prefix = prefix.rstrip("/")
+        normalized_path = path.lstrip("/")
+
+        if not normalized_prefix:
+            return f"/{normalized_path}"
+
+        if not normalized_path:
+            return normalized_prefix or "/"
+
+        return f"{normalized_prefix}/{normalized_path}"
+

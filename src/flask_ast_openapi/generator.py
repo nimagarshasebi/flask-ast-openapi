@@ -661,3 +661,103 @@ class FlaskASTOpenAPI:
             return {"type": "object"}
 
         return {"type": "string"}
+    def extract_json_body_field_schemas(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> dict[str, dict[str, Any]]:
+        """Extract JSON body field schemas from default values."""
+
+        json_variable_names: set[str] = set()
+        field_schemas: dict[str, dict[str, Any]] = {}
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Assign):
+                continue
+
+            value = node.value
+
+            uses_get_json = (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and isinstance(value.func.value, ast.Name)
+                and value.func.value.id == "request"
+                and value.func.attr == "get_json"
+            )
+
+            uses_request_json = (
+                isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Name)
+                and value.value.id == "request"
+                and value.attr == "json"
+            )
+
+            if not uses_get_json and not uses_request_json:
+                continue
+
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    json_variable_names.add(target.id)
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+
+            if not isinstance(node.func, ast.Attribute):
+                continue
+
+            if node.func.attr != "get":
+                continue
+
+            if not isinstance(node.func.value, ast.Name):
+                continue
+
+            if node.func.value.id not in json_variable_names:
+                continue
+
+            if not node.args:
+                continue
+
+            field_node = node.args[0]
+
+            if not (
+                isinstance(field_node, ast.Constant)
+                and isinstance(field_node.value, str)
+            ):
+                continue
+
+            field_name = field_node.value
+
+            if len(node.args) >= 2:
+                field_schemas[field_name] = (
+                    self.infer_openapi_schema_from_value(
+                        node.args[1]
+                    )
+                )
+            else:
+                field_schemas[field_name] = {
+                    "type": "string",
+                }
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Subscript):
+                continue
+
+            if not isinstance(node.value, ast.Name):
+                continue
+
+            if node.value.id not in json_variable_names:
+                continue
+
+            if not isinstance(node.slice, ast.Constant):
+                continue
+
+            if not isinstance(node.slice.value, str):
+                continue
+
+            field_name = node.slice.value
+
+            field_schemas.setdefault(
+                field_name,
+                {
+                    "type": "string",
+                },
+            )
+
+        return field_schemas

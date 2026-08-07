@@ -1879,3 +1879,231 @@ def test_boolean_is_not_mistaken_for_integer(tmp_path):
 
     assert schema["type"] == "boolean"
     assert schema["type"] != "integer"
+def test_extract_json_body_field_schemas_infers_multiple_types(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name", "")
+    age = data.get("age", 0)
+    score = data.get("score", 0.0)
+    active = data.get("active", False)
+    tags = data.get("tags", [])
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "name": {
+            "type": "string",
+        },
+        "age": {
+            "type": "integer",
+        },
+        "score": {
+            "type": "number",
+            "format": "float",
+        },
+        "active": {
+            "type": "boolean",
+        },
+        "tags": {
+            "type": "array",
+            "items": {},
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_supports_request_json(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    payload = request.json
+
+    name = payload.get("name", "")
+    enabled = payload.get("enabled", True)
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "name": {
+            "type": "string",
+        },
+        "enabled": {
+            "type": "boolean",
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_defaults_to_string_without_default(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+
+    name = data.get("name")
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "name": {
+            "type": "string",
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_supports_required_subscript(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+
+    email = data["email"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "email": {
+            "type": "string",
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_does_not_override_inferred_type(
+    tmp_path,
+):
+    source_code = """
+def update_user():
+    data = request.get_json()
+
+    age = data.get("age", 0)
+
+    if data["age"]:
+        return data["age"]
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "age": {
+            "type": "integer",
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_ignores_unrelated_dicts(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+    config = {}
+
+    name = data.get("name", "")
+    timeout = config.get("timeout", 30)
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "name": {
+            "type": "string",
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_supports_object_default(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    data = request.get_json()
+
+    metadata = data.get("metadata", {})
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {
+        "metadata": {
+            "type": "object",
+        },
+    }
+
+
+def test_extract_json_body_field_schemas_returns_empty_without_json(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    page = request.args.get("page", 1)
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_json_body_field_schemas(
+        function
+    )
+
+    assert schemas == {}

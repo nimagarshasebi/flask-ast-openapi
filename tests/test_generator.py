@@ -3913,3 +3913,177 @@ def get_users():
 
     assert len(routes) == 1
     assert routes[0].requires_auth is False
+def test_build_security_scheme_returns_bearer_auth(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    scheme = generator.build_security_scheme()
+
+    assert scheme == {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+
+
+def test_build_openapi_operation_includes_security_when_required(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        requires_auth=True,
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+        }
+    ]
+
+
+def test_build_openapi_operation_omits_security_for_public_route(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="health",
+        path="/health",
+        methods=["GET"],
+        requires_auth=False,
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert "security" not in operation
+def test_generate_includes_security_scheme_and_protected_route(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+@app.get("/users")
+@require_auth
+def get_users():
+    return [], 200
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    assert spec["components"]["securitySchemes"] == {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+
+    operation = spec["paths"]["/users"]["get"]
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+        }
+    ]
+
+def test_custom_auth_decorator_is_detected(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@token_required
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "token_required",
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True
+def test_custom_auth_decorator_replaces_defaults(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "token_required",
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is False
+def test_default_auth_decorators_still_work(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True
+def test_custom_called_auth_decorator_is_detected(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@my_auth()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "my_auth",
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True

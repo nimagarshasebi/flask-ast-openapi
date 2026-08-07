@@ -43,8 +43,18 @@ class FlaskASTOpenAPI:
         "jwt_required",
         "login_required",
     }
-    def __init__(self, source_dir: str | Path) -> None:
+    def __init__(
+    self,
+    source_dir: str | Path,
+    auth_decorator_names: set[str] | None = None,
+) -> None:
         self.source_dir = Path(source_dir)
+
+        self.auth_decorator_names = (
+            auth_decorator_names
+            if auth_decorator_names is not None
+            else self.DEFAULT_AUTH_DECORATORS.copy()
+        )
 
     def discover_python_files(self) -> list[Path]:
         """Find all Python files inside the source directory."""
@@ -224,7 +234,7 @@ class FlaskASTOpenAPI:
                         ),
                         requires_auth=self.function_has_auth_decorator(
                             function,
-                            self.DEFAULT_AUTH_DECORATORS,
+                            self.auth_decorator_names,
                         ),
                         description=self.extract_function_description(
                             function
@@ -306,7 +316,9 @@ class FlaskASTOpenAPI:
     ) -> dict[str, Any]:
         """Build an OpenAPI operation for a Flask route."""
 
-        parameters = self.build_openapi_path_parameters(route.path)
+        parameters = self.build_openapi_path_parameters(
+            route.path
+        )
 
         parameters.extend(
             self.build_query_parameters_from_names(
@@ -317,10 +329,10 @@ class FlaskASTOpenAPI:
         operation: dict[str, Any] = {
             "operationId": route.function_name,
             "parameters": parameters,
-           "responses": self.build_openapi_responses(
-    route.response_status_codes,
-    route.response_schemas,
-),
+            "responses": self.build_openapi_responses(
+                route.response_status_codes,
+                route.response_schemas,
+            ),
         }
 
         if route.uses_json_body:
@@ -339,6 +351,13 @@ class FlaskASTOpenAPI:
 
         if route.description:
             operation["description"] = route.description
+
+        if route.requires_auth:
+            operation["security"] = [
+                {
+                    "BearerAuth": [],
+                }
+            ]
 
         return operation
     def build_openapi_paths(self,routes: list[RouteDefinition],) -> dict[str, Any]:
@@ -364,14 +383,22 @@ class FlaskASTOpenAPI:
                 path_item[method.lower()] = operation
 
         return paths
-    def build_openapi_spec(self,routes: list[RouteDefinition],title: str = "Flask API",version: str = "1.0.0",) -> dict[str, Any]:
-        """Build a complete OpenAPI specification."""
+    def build_openapi_spec(
+    self,
+    routes: list[RouteDefinition],
+    title: str = "Flask API",
+    version: str = "1.0.0",
+) -> dict[str, Any]:
+        """Build the complete OpenAPI specification."""
 
         return {
             "openapi": "3.0.3",
             "info": {
                 "title": title,
                 "version": version,
+            },
+            "components": {
+                "securitySchemes": self.build_security_scheme(),
             },
             "paths": self.build_openapi_paths(routes),
         }
@@ -1088,3 +1115,15 @@ class FlaskASTOpenAPI:
                         return True
 
         return False
+    def build_security_scheme(
+    self,
+) -> dict[str, Any]:
+        """Build the default bearer authentication security scheme."""
+
+        return {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }

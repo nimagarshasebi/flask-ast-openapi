@@ -770,3 +770,35 @@ class FlaskASTOpenAPI:
             )
 
         return field_schemas
+    def extract_response_status_codes(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[int]:
+        """Extract HTTP status codes from route return statements."""
+
+        status_codes: list[int] = []
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Return):
+                continue
+
+            if not isinstance(node.value, ast.Tuple):
+                continue
+
+            if len(node.value.elts) < 2:
+                continue
+
+            status_node = node.value.elts[1]
+
+            if not isinstance(status_node, ast.Constant):
+                continue
+
+            if not isinstance(status_node.value, int):
+                continue
+
+            status_code = status_node.value
+
+            if status_code not in status_codes:
+                status_codes.append(status_code)
+
+        return status_codes

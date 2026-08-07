@@ -2301,3 +2301,171 @@ def create_user():
             "email",
         ],
     }
+def test_extract_response_status_codes_detects_single_status(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    return {"message": "created"}, 201
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert status_codes == [201]
+
+
+def test_extract_response_status_codes_detects_multiple_statuses(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    if not found:
+        return {"error": "not found"}, 404
+
+    return {"user": user}, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert status_codes == [
+        404,
+        200,
+    ]
+
+
+def test_extract_response_status_codes_removes_duplicates(
+    tmp_path,
+):
+    source_code = """
+def update_user():
+    if not found:
+        return {"error": "not found"}, 404
+
+    if not allowed:
+        return {"error": "forbidden"}, 404
+
+    return {"message": "updated"}, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert status_codes == [
+        404,
+        200,
+    ]
+
+
+def test_extract_response_status_codes_supports_jsonify(
+    tmp_path,
+):
+    source_code = """
+def create_user():
+    return jsonify({"message": "created"}), 201
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert status_codes == [201]
+
+
+def test_extract_response_status_codes_ignores_return_without_status(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    return {"users": []}
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert status_codes == []
+
+
+def test_extract_response_status_codes_detects_multiple_statuses(
+    tmp_path,
+):
+    source_code = """
+def get_user():
+    if not found:
+        return {"error": "not found"}, 404
+
+    return {"user": user}, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert set(status_codes) == {
+        404,
+        200,
+    }
+def test_extract_response_status_codes_removes_duplicates(
+    tmp_path,
+):
+    source_code = """
+def update_user():
+    if not found:
+        return {"error": "not found"}, 404
+
+    if not allowed:
+        return {"error": "forbidden"}, 404
+
+    return {"message": "updated"}, 200
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    status_codes = generator.extract_response_status_codes(
+        function
+    )
+
+    assert set(status_codes) == {
+        404,
+        200,
+    }
+
+    assert len(status_codes) == 2

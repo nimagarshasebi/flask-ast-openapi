@@ -3449,3 +3449,92 @@ users_bp = flask.Blueprint(
     prefixes = generator.extract_blueprint_prefixes(tree)
 
     assert prefixes == {}
+def test_extract_decorator_owner_detects_app(
+    tmp_path,
+):
+    source_code = """
+@app.get("/health")
+def health():
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    decorator = tree.body[0].decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.extract_decorator_owner(decorator) == "app"
+
+
+def test_extract_decorator_owner_detects_blueprint(
+    tmp_path,
+):
+    source_code = """
+@users_bp.post("/users")
+def create_user():
+    return {}
+"""
+
+    tree = ast.parse(source_code)
+    decorator = tree.body[0].decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert (
+        generator.extract_decorator_owner(decorator)
+        == "users_bp"
+    )
+
+
+def test_extract_decorator_owner_supports_route_decorator(
+    tmp_path,
+):
+    source_code = """
+@users_bp.route("/users", methods=["GET"])
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    decorator = tree.body[0].decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert (
+        generator.extract_decorator_owner(decorator)
+        == "users_bp"
+    )
+
+
+def test_extract_decorator_owner_returns_none_for_unrelated_decorator(
+    tmp_path,
+):
+    source_code = """
+@staticmethod
+def helper():
+    return None
+"""
+
+    tree = ast.parse(source_code)
+    decorator = tree.body[0].decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.extract_decorator_owner(decorator) is None
+
+
+def test_extract_decorator_owner_returns_none_for_nested_owner(
+    tmp_path,
+):
+    source_code = """
+@api.users.get("/users")
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    decorator = tree.body[0].decorator_list[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.extract_decorator_owner(decorator) is None

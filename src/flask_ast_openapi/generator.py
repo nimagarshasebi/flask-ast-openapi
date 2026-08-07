@@ -1013,3 +1013,21 @@ class FlaskASTOpenAPI:
                     prefixes[target.id] = prefix
 
         return prefixes
+    def extract_decorator_owner(
+    self,
+    decorator: ast.expr,
+) -> str | None:
+        """Extract the object name used by a Flask route decorator."""
+
+        if not isinstance(decorator, ast.Call):
+            return None
+
+        if not isinstance(decorator.func, ast.Attribute):
+            return None
+
+        owner = decorator.func.value
+
+        if not isinstance(owner, ast.Name):
+            return None
+
+        return owner.id

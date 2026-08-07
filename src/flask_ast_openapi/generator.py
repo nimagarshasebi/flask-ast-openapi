@@ -29,6 +29,8 @@ class RouteDefinition:
         dict[str, Any],
     ] = field(default_factory=dict)
     requires_auth: bool = False
+    auth_schemes: list[str] = field(default_factory=list)
+    auth_scheme_mode: str = "and"
     description: str | None = None
 @dataclass
 class PathParameter:
@@ -47,6 +49,9 @@ class FlaskASTOpenAPI:
     self,
     source_dir: str | Path,
     auth_decorator_names: set[str] | None = None,
+    auth_scheme_mapping: dict[str, list[str]] | None = None,
+    security_schemes: dict[str, dict[str, Any]] | None = None,
+    auth_scheme_modes: dict[str, str] | None = None,
 ) -> None:
         self.source_dir = Path(source_dir)
 
@@ -56,6 +61,32 @@ class FlaskASTOpenAPI:
             else self.DEFAULT_AUTH_DECORATORS.copy()
         )
 
+        self.auth_scheme_mapping = (
+            auth_scheme_mapping
+            if auth_scheme_mapping is not None
+            else {
+                "require_auth": ["BearerAuth"],
+                "jwt_required": ["BearerAuth"],
+                "login_required": ["BearerAuth"],
+            }
+        )
+
+        self.security_schemes = (
+            security_schemes
+            if security_schemes is not None
+            else {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                }
+            }
+        )
+        self.auth_scheme_modes = (
+            auth_scheme_modes
+            if auth_scheme_modes is not None
+            else {}
+        )
     def discover_python_files(self) -> list[Path]:
         """Find all Python files inside the source directory."""
 
@@ -171,9 +202,9 @@ class FlaskASTOpenAPI:
 
         return route_functions
     def extract_routes(
-    self,
-    tree: ast.Module,
-) -> list[RouteDefinition]:
+        self,
+        tree: ast.Module,
+    ) -> list[RouteDefinition]:
         """Extract route definitions from an AST module."""
 
         routes: list[RouteDefinition] = []
@@ -181,6 +212,17 @@ class FlaskASTOpenAPI:
         blueprint_prefixes = self.extract_blueprint_prefixes(tree)
 
         for function in self.find_route_functions(tree):
+            auth_decorator_name = self.extract_auth_decorator_name(
+                function
+            )
+
+            auth_scheme_mode = "and"
+
+            if auth_decorator_name is not None:
+                auth_scheme_mode = self.get_auth_scheme_mode(
+                    auth_decorator_name
+                )
+
             for decorator in function.decorator_list:
                 if not self.is_flask_route_decorator(decorator):
                     continue
@@ -202,15 +244,23 @@ class FlaskASTOpenAPI:
                     RouteDefinition(
                         function_name=function.name,
                         path=path,
-                        methods=self.extract_http_methods(decorator),
-                        query_parameter_names=(
-                            self.extract_query_parameter_names(function)
+                        methods=self.extract_http_methods(
+                            decorator
                         ),
-                        uses_json_body=self.function_uses_json_body(
-                            function
+                        query_parameter_names=(
+                            self.extract_query_parameter_names(
+                                function
+                            )
+                        ),
+                        uses_json_body=(
+                            self.function_uses_json_body(
+                                function
+                            )
                         ),
                         json_body_field_names=(
-                            self.extract_json_body_field_names(function)
+                            self.extract_json_body_field_names(
+                                function
+                            )
                         ),
                         required_json_body_field_names=(
                             self.extract_required_json_body_field_names(
@@ -232,12 +282,22 @@ class FlaskASTOpenAPI:
                                 function
                             )
                         ),
-                        requires_auth=self.function_has_auth_decorator(
-                            function,
-                            self.auth_decorator_names,
+                        requires_auth=(
+                            self.function_has_auth_decorator(
+                                function,
+                                self.auth_decorator_names,
+                            )
                         ),
-                        description=self.extract_function_description(
-                            function
+                        auth_schemes=(
+                            self.extract_auth_schemes(
+                                function
+                            )
+                        ),
+                        auth_scheme_mode=auth_scheme_mode,
+                        description=(
+                            self.extract_function_description(
+                                function
+                            )
                         ),
                     )
                 )
@@ -352,12 +412,21 @@ class FlaskASTOpenAPI:
         if route.description:
             operation["description"] = route.description
 
-        if route.requires_auth:
-            operation["security"] = [
-                {
-                    "BearerAuth": [],
-                }
-            ]
+        if route.requires_auth and route.auth_schemes:
+            if route.auth_scheme_mode == "or":
+                operation["security"] = [
+                    {
+                        scheme_name: [],
+                    }
+                    for scheme_name in route.auth_schemes
+                ]
+            else:
+                operation["security"] = [
+                    {
+                        scheme_name: []
+                        for scheme_name in route.auth_schemes
+                    }
+                ]
 
         return operation
     def build_openapi_paths(self,routes: list[RouteDefinition],) -> dict[str, Any]:
@@ -398,7 +467,7 @@ class FlaskASTOpenAPI:
                 "version": version,
             },
             "components": {
-                "securitySchemes": self.build_security_scheme(),
+                "securitySchemes": self.build_security_schemes(),
             },
             "paths": self.build_openapi_paths(routes),
         }
@@ -1115,15 +1184,78 @@ class FlaskASTOpenAPI:
                         return True
 
         return False
-    def build_security_scheme(
-    self,
-) -> dict[str, Any]:
-        """Build the default bearer authentication security scheme."""
+    def build_security_schemes(
+        self,
+    ) -> dict[str, dict[str, Any]]:
+        """Build configured OpenAPI security schemes."""
 
-        return {
-            "BearerAuth": {
-                "type": "http",
-                "scheme": "bearer",
-                "bearerFormat": "JWT",
-            }
-        }
+        return self.security_schemes
+    def extract_auth_schemes(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[str]:
+        """Extract security scheme names from authentication decorators."""
+
+        schemes: list[str] = []
+
+        for decorator in function.decorator_list:
+            decorator_name: str | None = None
+
+            if isinstance(decorator, ast.Name):
+                decorator_name = decorator.id
+
+            elif (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Name)
+            ):
+                decorator_name = decorator.func.id
+
+            if decorator_name is None:
+                continue
+
+            mapped_schemes = self.auth_scheme_mapping.get(
+                decorator_name,
+                [],
+            )
+
+            for scheme in mapped_schemes:
+                if scheme not in schemes:
+                    schemes.append(scheme)
+
+        return schemes
+    def get_auth_scheme_mode(
+    self,
+    decorator_name: str,
+) -> str:
+        """Return the configured security mode for an auth decorator."""
+
+        mode = self.auth_scheme_modes.get(
+            decorator_name,
+            "and",
+        ).lower()
+
+        if mode not in {"and", "or"}:
+            raise ValueError(
+                f"Invalid auth scheme mode: {mode}"
+            )
+
+        return mode
+    def extract_auth_decorator_name(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> str | None:
+        """Extract the first configured authentication decorator name."""
+
+        for decorator in function.decorator_list:
+            if isinstance(decorator, ast.Name):
+                if decorator.id in self.auth_decorator_names:
+                    return decorator.id
+
+            if (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Name)
+            ):
+                if decorator.func.id in self.auth_decorator_names:
+                    return decorator.func.id
+
+        return None

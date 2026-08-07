@@ -3,6 +3,7 @@ import ast
 from flask_ast_openapi.generator import FlaskASTOpenAPI, RouteDefinition
 from flask_ast_openapi import FlaskASTOpenAPI as PublicFlaskASTOpenAPI
 import json
+import pytest
 
 def test_parse_file_returns_ast_module(tmp_path):
     source_file = tmp_path / "sample.py"
@@ -3913,21 +3914,20 @@ def get_users():
 
     assert len(routes) == 1
     assert routes[0].requires_auth is False
-def test_build_security_scheme_returns_bearer_auth(
+def test_build_security_schemes_returns_bearer_auth(
     tmp_path,
 ):
     generator = FlaskASTOpenAPI(tmp_path)
 
-    scheme = generator.build_security_scheme()
+    schemes = generator.build_security_schemes()
 
-    assert scheme == {
+    assert schemes == {
         "BearerAuth": {
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
         }
     }
-
 
 def test_build_openapi_operation_includes_security_when_required(
     tmp_path,
@@ -3939,6 +3939,9 @@ def test_build_openapi_operation_includes_security_when_required(
         path="/users",
         methods=["GET"],
         requires_auth=True,
+        auth_schemes=[
+            "BearerAuth",
+        ],
     )
 
     operation = generator.build_openapi_operation(route)
@@ -3948,7 +3951,6 @@ def test_build_openapi_operation_includes_security_when_required(
             "BearerAuth": [],
         }
     ]
-
 
 def test_build_openapi_operation_omits_security_for_public_route(
     tmp_path,
@@ -4087,3 +4089,790 @@ def get_users():
 
     assert len(routes) == 1
     assert routes[0].requires_auth is True
+def test_extract_auth_schemes_returns_single_scheme(
+    tmp_path,
+):
+    source_code = """
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_mapping={
+            "jwt_required": [
+                "BearerAuth",
+            ],
+        },
+    )
+
+    schemes = generator.extract_auth_schemes(function)
+
+    assert schemes == [
+        "BearerAuth",
+    ]
+
+
+def test_extract_auth_schemes_returns_multiple_schemes_for_one_decorator(
+    tmp_path,
+):
+    source_code = """
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+                "ApiKeyAuth",
+            ],
+        },
+    )
+
+    schemes = generator.extract_auth_schemes(function)
+
+    assert schemes == [
+        "BearerAuth",
+        "ApiKeyAuth",
+    ]
+
+
+def test_extract_auth_schemes_combines_multiple_auth_decorators(
+    tmp_path,
+):
+    source_code = """
+@jwt_required()
+@api_key_required
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_mapping={
+            "jwt_required": [
+                "BearerAuth",
+            ],
+            "api_key_required": [
+                "ApiKeyAuth",
+            ],
+        },
+    )
+
+    schemes = generator.extract_auth_schemes(function)
+
+    assert schemes == [
+        "BearerAuth",
+        "ApiKeyAuth",
+    ]
+
+
+def test_extract_auth_schemes_removes_duplicates(
+    tmp_path,
+):
+    source_code = """
+@require_auth
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+                "ApiKeyAuth",
+            ],
+            "jwt_required": [
+                "BearerAuth",
+            ],
+        },
+    )
+
+    schemes = generator.extract_auth_schemes(function)
+
+    assert schemes == [
+        "BearerAuth",
+        "ApiKeyAuth",
+    ]
+
+
+def test_extract_auth_schemes_ignores_unmapped_decorators(
+    tmp_path,
+):
+    source_code = """
+@cache_response
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+            ],
+        },
+    )
+
+    schemes = generator.extract_auth_schemes(function)
+
+    assert schemes == []
+def test_extract_routes_includes_single_auth_scheme(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "jwt_required",
+        },
+        auth_scheme_mapping={
+            "jwt_required": [
+                "BearerAuth",
+            ],
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True
+    assert routes[0].auth_schemes == [
+        "BearerAuth",
+    ]
+def test_extract_routes_includes_multiple_auth_schemes(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+                "ApiKeyAuth",
+            ],
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True
+    assert routes[0].auth_schemes == [
+        "BearerAuth",
+        "ApiKeyAuth",
+    ]
+def test_extract_routes_has_empty_auth_schemes_for_public_route(
+    tmp_path,
+):
+    source_code = """
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is False
+    assert routes[0].auth_schemes == []
+def test_build_openapi_operation_includes_multiple_auth_schemes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        requires_auth=True,
+        auth_schemes=[
+            "BearerAuth",
+            "ApiKeyAuth",
+        ],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+            "ApiKeyAuth": [],
+        }
+    ]
+def test_build_openapi_operation_includes_single_auth_scheme(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        requires_auth=True,
+        auth_schemes=[
+            "BearerAuth",
+        ],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+        }
+    ]
+def test_build_openapi_operation_omits_security_without_auth_schemes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        requires_auth=True,
+        auth_schemes=[],
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert "security" not in operation
+def test_build_security_schemes_returns_default_bearer_auth(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemes = generator.build_security_schemes()
+
+    assert schemes == {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+def test_build_security_schemes_supports_multiple_schemes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        security_schemes={
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            },
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Token",
+            },
+        },
+    )
+
+    schemes = generator.build_security_schemes()
+
+    assert schemes == {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        },
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Token",
+        },
+    }
+def test_build_openapi_spec_includes_multiple_security_schemes(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        security_schemes={
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            },
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Token",
+            },
+        },
+    )
+
+    spec = generator.build_openapi_spec([])
+
+    assert spec["components"]["securitySchemes"] == {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        },
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Token",
+        },
+    }
+def test_generate_supports_one_auth_decorator_with_multiple_security_schemes(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+@app.get("/users")
+@require_auth
+def get_users():
+    return [], 200
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+                "ApiKeyAuth",
+            ],
+        },
+        security_schemes={
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            },
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Token",
+            },
+        },
+    )
+
+    spec = generator.generate()
+
+    assert spec["components"]["securitySchemes"] == {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        },
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Token",
+        },
+    }
+
+    operation = spec["paths"]["/users"]["get"]
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+            "ApiKeyAuth": [],
+        }
+    ]
+def test_get_auth_scheme_mode_returns_configured_or(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_modes={
+            "require_auth": "or",
+        },
+    )
+
+    mode = generator.get_auth_scheme_mode(
+        "require_auth"
+    )
+
+    assert mode == "or"
+def test_get_auth_scheme_mode_returns_configured_and(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_modes={
+            "require_auth": "and",
+        },
+    )
+
+    mode = generator.get_auth_scheme_mode(
+        "require_auth"
+    )
+
+    assert mode == "and"
+def test_get_auth_scheme_mode_defaults_to_and(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    mode = generator.get_auth_scheme_mode(
+        "require_auth"
+    )
+
+    assert mode == "and"
+def test_get_auth_scheme_mode_rejects_invalid_mode(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_scheme_modes={
+            "require_auth": "invalid",
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid auth scheme mode",
+    ):
+        generator.get_auth_scheme_mode(
+            "require_auth"
+        )
+def test_extract_auth_decorator_name_detects_plain_decorator(
+    tmp_path,
+):
+    source_code = """
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+    )
+
+    decorator_name = generator.extract_auth_decorator_name(
+        function
+    )
+
+    assert decorator_name == "require_auth"
+def test_extract_auth_decorator_name_detects_called_decorator(
+    tmp_path,
+):
+    source_code = """
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "jwt_required",
+        },
+    )
+
+    decorator_name = generator.extract_auth_decorator_name(
+        function
+    )
+
+    assert decorator_name == "jwt_required"
+def test_extract_auth_decorator_name_detects_called_decorator(
+    tmp_path,
+):
+    source_code = """
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+
+            "jwt_required",
+        },
+    )
+
+    decorator_name = generator.extract_auth_decorator_name(
+        function
+    )
+
+    assert decorator_name == "jwt_required"
+def test_extract_auth_decorator_name_returns_none_without_auth(
+    tmp_path,
+):
+    source_code = """
+def health():
+    return {"status": "ok"}
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    decorator_name = generator.extract_auth_decorator_name(
+        function
+    )
+
+    assert decorator_name is None
+def test_extract_auth_decorator_name_ignores_unrelated_decorator(
+    tmp_path,
+):
+    source_code = """
+@cache
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+    )
+
+    decorator_name = generator.extract_auth_decorator_name(
+        function
+    )
+
+    assert decorator_name == "require_auth"
+def test_extract_routes_includes_configured_auth_scheme_mode(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+                "ApiKeyAuth",
+            ],
+        },
+        auth_scheme_modes={
+            "require_auth": "or",
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].auth_scheme_mode == "or"
+def test_extract_routes_defaults_auth_scheme_mode_to_and(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+    )
+
+    routes = generator.extract_routes(tree)
+
+    assert routes[0].auth_scheme_mode == "and"
+def test_extract_routes_public_route_uses_default_auth_scheme_mode(
+    tmp_path,
+):
+    source_code = """
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert routes[0].requires_auth is False
+    assert routes[0].auth_scheme_mode == "and"
+def test_build_openapi_operation_uses_or_security_mode(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        requires_auth=True,
+        auth_schemes=[
+            "BearerAuth",
+            "ApiKeyAuth",
+        ],
+        auth_scheme_mode="or",
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+        },
+        {
+            "ApiKeyAuth": [],
+        },
+    ]
+def test_build_openapi_operation_uses_and_security_mode(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        requires_auth=True,
+        auth_schemes=[
+            "BearerAuth",
+            "ApiKeyAuth",
+        ],
+        auth_scheme_mode="and",
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+            "ApiKeyAuth": [],
+        }
+    ]
+def test_generate_applies_or_auth_mode_to_openapi_security(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        """
+@app.get("/users")
+@require_auth
+def get_users():
+    return [], 200
+""",
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(
+        tmp_path,
+        auth_decorator_names={
+            "require_auth",
+        },
+        auth_scheme_mapping={
+            "require_auth": [
+                "BearerAuth",
+                "ApiKeyAuth",
+            ],
+        },
+        auth_scheme_modes={
+            "require_auth": "or",
+        },
+        security_schemes={
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            },
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Token",
+            },
+        },
+    )
+
+    spec = generator.generate()
+
+    operation = spec["paths"]["/users"]["get"]
+
+    assert operation["security"] == [
+        {
+            "BearerAuth": [],
+        },
+        {
+            "ApiKeyAuth": [],
+        },
+    ]

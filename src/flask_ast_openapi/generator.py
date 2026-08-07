@@ -28,6 +28,7 @@ class RouteDefinition:
         int,
         dict[str, Any],
     ] = field(default_factory=dict)
+    requires_auth: bool = False
     description: str | None = None
 @dataclass
 class PathParameter:
@@ -37,7 +38,11 @@ class PathParameter:
     converter: str
 class FlaskASTOpenAPI:
     """Generate OpenAPI documentation by analyzing Flask source code."""
-
+    DEFAULT_AUTH_DECORATORS = {
+        "require_auth",
+        "jwt_required",
+        "login_required",
+    }
     def __init__(self, source_dir: str | Path) -> None:
         self.source_dir = Path(source_dir)
 
@@ -216,6 +221,10 @@ class FlaskASTOpenAPI:
                             self.extract_response_schemas(
                                 function
                             )
+                        ),
+                        requires_auth=self.function_has_auth_decorator(
+                            function,
+                            self.DEFAULT_AUTH_DECORATORS,
                         ),
                         description=self.extract_function_description(
                             function

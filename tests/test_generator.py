@@ -3840,3 +3840,76 @@ def get_users():
     )
 
     assert result is True
+def test_extract_routes_marks_authenticated_route(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True
+
+
+def test_extract_routes_marks_jwt_required_route(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is True
+
+
+def test_extract_routes_marks_public_route_as_not_authenticated(
+    tmp_path,
+):
+    source_code = """
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is False
+
+
+def test_extract_routes_ignores_unrelated_decorators_for_auth(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@cache_response
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    routes = generator.extract_routes(tree)
+
+    assert len(routes) == 1
+    assert routes[0].requires_auth is False

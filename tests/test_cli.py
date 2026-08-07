@@ -88,3 +88,88 @@ def get_users():
     assert spec["openapi"] == "3.0.3"
     assert "/users" in spec["paths"]
     assert "get" in spec["paths"]["/users"]
+def test_build_parser_parses_title():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "./app",
+            "--title",
+            "Trace Pose API",
+        ]
+    )
+
+    assert args.title == "Trace Pose API"
+def test_build_parser_parses_version():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "./app",
+            "--version",
+            "2.3.0",
+        ]
+    )
+
+    assert args.version == "2.3.0"
+def test_build_parser_uses_default_title_and_version():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "./app",
+        ]
+    )
+
+    assert args.title == "Flask API"
+    assert args.version == "1.0.0"
+def test_main_uses_title_and_version(
+    tmp_path,
+    monkeypatch,
+):
+    source_dir = tmp_path / "app"
+    source_dir.mkdir()
+
+    controller_file = source_dir / "app.py"
+
+    controller_file.write_text(
+        """
+from flask import Flask
+
+app = Flask(__name__)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}, 200
+""",
+        encoding="utf-8",
+    )
+
+    output_file = tmp_path / "openapi.json"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "flask-ast-openapi",
+            str(source_dir),
+            "--output",
+            str(output_file),
+            "--title",
+            "Trace Pose API",
+            "--version",
+            "2.0.0",
+        ],
+    )
+
+    main()
+
+    spec = json.loads(
+        output_file.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert spec["info"]["title"] == "Trace Pose API"
+    assert spec["info"]["version"] == "2.0.0"

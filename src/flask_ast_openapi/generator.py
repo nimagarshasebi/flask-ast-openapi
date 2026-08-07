@@ -1061,3 +1061,21 @@ class FlaskASTOpenAPI:
 
         return f"{normalized_prefix}/{normalized_path}"
 
+    def function_has_auth_decorator(
+    self,
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    auth_decorator_names: set[str],
+) -> bool:
+        """Check whether a route function uses an authentication decorator."""
+
+        for decorator in function.decorator_list:
+            if isinstance(decorator, ast.Name):
+                if decorator.id in auth_decorator_names:
+                    return True
+
+            if isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name):
+                    if decorator.func.id in auth_decorator_names:
+                        return True
+
+        return False

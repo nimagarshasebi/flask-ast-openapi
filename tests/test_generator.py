@@ -3731,3 +3731,112 @@ def get_user(user_id):
             },
         }
     ]
+def test_function_has_auth_decorator_detects_plain_decorator(
+    tmp_path,
+):
+    source_code = """
+@require_auth
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.function_has_auth_decorator(
+        function,
+        {"require_auth", "jwt_required", "login_required"},
+    )
+
+    assert result is True
+
+
+def test_function_has_auth_decorator_detects_called_decorator(
+    tmp_path,
+):
+    source_code = """
+@jwt_required()
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.function_has_auth_decorator(
+        function,
+        {"require_auth", "jwt_required"},
+    )
+
+    assert result is True
+
+
+def test_function_has_auth_decorator_returns_false_without_auth(
+    tmp_path,
+):
+    source_code = """
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.function_has_auth_decorator(
+        function,
+        {"require_auth", "jwt_required"},
+    )
+
+    assert result is False
+
+
+def test_function_has_auth_decorator_ignores_unrelated_decorator(
+    tmp_path,
+):
+    source_code = """
+@cache_response
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.function_has_auth_decorator(
+        function,
+        {"require_auth", "jwt_required"},
+    )
+
+    assert result is False
+
+
+def test_function_has_auth_decorator_supports_multiple_decorators(
+    tmp_path,
+):
+    source_code = """
+@app.get("/users")
+@require_auth
+@cache_response
+def get_users():
+    return []
+"""
+
+    tree = ast.parse(source_code)
+    function = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    result = generator.function_has_auth_decorator(
+        function,
+        {"require_auth"},
+    )
+
+    assert result is True

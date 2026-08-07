@@ -632,3 +632,32 @@ class FlaskASTOpenAPI:
                 required_field_names.append(field_name)
 
         return required_field_names
+    def infer_openapi_schema_from_value(self,value: ast.expr,) -> dict[str, Any]:
+        """Infer an OpenAPI schema from an AST value."""
+
+        if isinstance(value, ast.Constant):
+            if isinstance(value.value, bool):
+                return {"type": "boolean"}
+
+            if isinstance(value.value, int):
+                return {"type": "integer"}
+
+            if isinstance(value.value, float):
+                return {
+                    "type": "number",
+                    "format": "float",
+                }
+
+            if isinstance(value.value, str):
+                return {"type": "string"}
+
+        if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+            return {
+                "type": "array",
+                "items": {},
+            }
+
+        if isinstance(value, ast.Dict):
+            return {"type": "object"}
+
+        return {"type": "string"}

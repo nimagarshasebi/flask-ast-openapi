@@ -1762,3 +1762,120 @@ def test_build_openapi_operation_includes_required_json_fields(
             "password",
         ],
     }
+def test_infer_openapi_schema_from_boolean(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=False)
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "boolean",
+    }
+
+
+def test_infer_openapi_schema_from_integer(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=42)
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "integer",
+    }
+
+
+def test_infer_openapi_schema_from_float(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=3.14)
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "number",
+        "format": "float",
+    }
+
+
+def test_infer_openapi_schema_from_string(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value="hello")
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "string",
+    }
+
+
+def test_infer_openapi_schema_from_list(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.List(
+        elts=[],
+        ctx=ast.Load(),
+    )
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "array",
+        "items": {},
+    }
+
+
+def test_infer_openapi_schema_from_tuple(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Tuple(
+        elts=[],
+        ctx=ast.Load(),
+    )
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "array",
+        "items": {},
+    }
+
+
+def test_infer_openapi_schema_from_set(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Set(elts=[])
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "array",
+        "items": {},
+    }
+
+
+def test_infer_openapi_schema_from_dict(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Dict(
+        keys=[],
+        values=[],
+    )
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "object",
+    }
+
+
+def test_infer_openapi_schema_defaults_to_string_for_unknown_node(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Name(
+        id="some_variable",
+        ctx=ast.Load(),
+    )
+
+    assert generator.infer_openapi_schema_from_value(node) == {
+        "type": "string",
+    }
+
+
+def test_boolean_is_not_mistaken_for_integer(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    node = ast.Constant(value=True)
+
+    schema = generator.infer_openapi_schema_from_value(node)
+
+    assert schema["type"] == "boolean"
+    assert schema["type"] != "integer"

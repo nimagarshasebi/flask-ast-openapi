@@ -6042,3 +6042,277 @@ def register_edge():
             "device_name",
         ],
     }
+def test_extract_marshmallow_fields_extracts_nested_schema(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    profile = fields.Nested(
+        ProfileSchema,
+        required=True,
+    )
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["profile"] == {
+        "field_type": "Nested",
+        "required": True,
+        "nested_schema": "ProfileSchema",
+    }
+def test_extract_marshmallow_fields_nested_defaults_required_to_false(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    profile = fields.Nested(ProfileSchema)
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["profile"] == {
+        "field_type": "Nested",
+        "required": False,
+        "nested_schema": "ProfileSchema",
+    }
+def test_extract_marshmallow_fields_extracts_list_of_nested_schema(
+    tmp_path,
+):
+    source_code = """
+class TeamSchema(Schema):
+    members = fields.List(
+        fields.Nested(UserSchema),
+        required=True,
+    )
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["members"] == {
+        "field_type": "List",
+        "required": True,
+        "item_type": "Nested",
+        "item_nested_schema": "UserSchema",
+    }
+def test_extract_marshmallow_fields_list_of_nested_defaults_required_to_false(
+    tmp_path,
+):
+    source_code = """
+class TeamSchema(Schema):
+    members = fields.List(
+        fields.Nested(UserSchema)
+    )
+"""
+
+    tree = ast.parse(source_code)
+    schema_class = tree.body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(
+        schema_class
+    )
+
+    assert extracted_fields["members"] == {
+        "field_type": "List",
+        "required": False,
+        "item_type": "Nested",
+        "item_nested_schema": "UserSchema",
+    }
+def test_build_openapi_schema_supports_nested_field(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = {
+        "profile": {
+            "field_type": "Nested",
+            "required": True,
+            "nested_schema": "ProfileSchema",
+        },
+    }
+
+    schema = generator.build_openapi_schema_from_marshmallow_fields(
+        extracted_fields
+    )
+
+    assert schema["properties"]["profile"] == {
+        "$ref": "#/components/schemas/ProfileSchema",
+    }
+
+    assert schema["required"] == [
+        "profile",
+    ]
+def test_build_openapi_schema_supports_list_of_nested_fields(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = {
+        "members": {
+            "field_type": "List",
+            "required": False,
+            "item_type": "Nested",
+            "item_nested_schema": "UserSchema",
+        },
+    }
+
+    schema = generator.build_openapi_schema_from_marshmallow_fields(
+        extracted_fields
+    )
+
+    assert schema["properties"]["members"] == {
+        "type": "array",
+        "items": {
+            "$ref": "#/components/schemas/UserSchema",
+        },
+    }
+def test_extract_marshmallow_schema_components(
+    tmp_path,
+):
+    source_code = """
+class ProfileSchema(Schema):
+    name = fields.String(required=True)
+    age = fields.Integer()
+"""
+
+    tree = ast.parse(source_code)
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = generator.extract_marshmallow_schema_components(
+        tree
+    )
+
+    assert schemas == {
+        "ProfileSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                },
+                "age": {
+                    "type": "integer",
+                },
+            },
+            "required": [
+                "name",
+            ],
+        },
+    }
+def test_build_openapi_spec_includes_schema_components(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    schemas = {
+        "ProfileSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                },
+            },
+        },
+    }
+
+    spec = generator.build_openapi_spec(
+        [],
+        schemas=schemas,
+    )
+
+    assert spec["components"]["schemas"] == schemas
+def test_generate_includes_nested_marshmallow_schema_components(
+    tmp_path,
+):
+    controller_file = tmp_path / "user_controller.py"
+
+    controller_file.write_text(
+        '''
+from flask import Flask, request
+from marshmallow import Schema, fields
+
+app = Flask(__name__)
+
+
+class ProfileSchema(Schema):
+    name = fields.String(required=True)
+
+
+class UserRequestSchema(Schema):
+    username = fields.String(required=True)
+    profile = fields.Nested(ProfileSchema)
+
+
+@app.post("/users")
+def create_user():
+    """
+    Create a user.
+
+    :request: UserRequestSchema
+    """
+    data = request.get_json()
+    return {}, 201
+''',
+        encoding="utf-8",
+    )
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    spec = generator.generate()
+
+    assert "ProfileSchema" in spec["components"]["schemas"]
+    assert "UserRequestSchema" in spec["components"]["schemas"]
+
+    request_schema = spec[
+        "paths"
+    ][
+        "/users"
+    ][
+        "post"
+    ][
+        "requestBody"
+    ][
+        "content"
+    ][
+        "application/json"
+    ][
+        "schema"
+    ]
+
+    assert request_schema["properties"]["profile"] == {
+        "$ref": "#/components/schemas/ProfileSchema",
+    }
+
+    assert spec["components"]["schemas"]["ProfileSchema"] == {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+            },
+        },
+        "required": [
+            "name",
+        ],
+    }

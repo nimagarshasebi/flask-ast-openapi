@@ -494,8 +494,16 @@ class FlaskASTOpenAPI:
     routes: list[RouteDefinition],
     title: str = "Flask API",
     version: str = "1.0.0",
+    schemas: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
         """Build the complete OpenAPI specification."""
+
+        components: dict[str, Any] = {
+            "securitySchemes": self.build_security_schemes(),
+        }
+
+        if schemas:
+            components["schemas"] = schemas
 
         return {
             "openapi": "3.0.3",
@@ -503,25 +511,38 @@ class FlaskASTOpenAPI:
                 "title": title,
                 "version": version,
             },
-            "components": {
-                "securitySchemes": self.build_security_schemes(),
-            },
+            "components": components,
             "paths": self.build_openapi_paths(routes),
         }
-    def generate(self,title: str = "Flask API",version: str = "1.0.0",) -> dict[str, Any]:
-        """Generate an OpenAPI specification from all Python source files."""
+    def generate(
+        self,
+        title: str = "Flask API",
+        version: str = "1.0.0",
+    ) -> dict[str, Any]:
+            """Generate an OpenAPI specification."""
 
-        routes: list[RouteDefinition] = []
+            routes: list[RouteDefinition] = []
+            schemas: dict[str, dict[str, Any]] = {}
 
-        for file_path in self.discover_python_files():
-            tree = self.parse_file(file_path)
-            routes.extend(self.extract_routes(tree))
+            for file_path in self.discover_python_files():
+                tree = self.parse_file(file_path)
 
-        return self.build_openapi_spec(
-            routes,
-            title=title,
-            version=version,
-        )
+                routes.extend(
+                    self.extract_routes(tree)
+                )
+
+                schemas.update(
+                    self.extract_marshmallow_schema_components(
+                        tree
+                    )
+                )
+
+            return self.build_openapi_spec(
+                routes,
+                title=title,
+                version=version,
+                schemas=schemas,
+            )
     def write_json(self,spec: dict[str, Any],output_path: str | Path,) -> Path:
         """Write an OpenAPI specification to a JSON file."""
 
@@ -1354,9 +1375,9 @@ class FlaskASTOpenAPI:
 
         return None
     def extract_marshmallow_fields(
-    self,
-    schema_class: ast.ClassDef,
-) -> dict[str, dict[str, Any]]:
+        self,
+        schema_class: ast.ClassDef,
+    ) -> dict[str, dict[str, Any]]:
         """Extract Marshmallow field definitions from a schema class."""
 
         extracted_fields: dict[str, dict[str, Any]] = {}
@@ -1383,6 +1404,8 @@ class FlaskASTOpenAPI:
 
             required = False
             item_type: str | None = None
+            nested_schema: str | None = None
+            item_nested_schema: str | None = None
 
             for keyword in node.value.keywords:
                 if keyword.arg != "required":
@@ -1403,6 +1426,17 @@ class FlaskASTOpenAPI:
                 ):
                     item_type = inner_field.func.attr
 
+                    if item_type == "Nested" and inner_field.args:
+                        nested_argument = inner_field.args[0]
+
+                        if isinstance(nested_argument, ast.Name):
+                            item_nested_schema = nested_argument.id
+            if field_type == "Nested" and node.value.args:
+                nested_argument = node.value.args[0]
+
+                if isinstance(nested_argument, ast.Name):
+                    nested_schema = nested_argument.id
+
             field_info: dict[str, Any] = {
                 "field_type": field_type,
                 "required": required,
@@ -1410,6 +1444,11 @@ class FlaskASTOpenAPI:
 
             if item_type is not None:
                 field_info["item_type"] = item_type
+            if item_nested_schema is not None:
+                field_info["item_nested_schema"] = item_nested_schema
+
+            if nested_schema is not None:
+                field_info["nested_schema"] = nested_schema
 
             extracted_fields[target.id] = field_info
 
@@ -1474,19 +1513,52 @@ class FlaskASTOpenAPI:
         for field_name, field_info in extracted_fields.items():
             field_type = field_info["field_type"]
 
-            field_schema = self.marshmallow_field_type_to_openapi_schema(
-                field_type
-            )
+            if field_type == "Nested":
+                nested_schema = field_info.get("nested_schema")
 
-            if field_type == "List":
+                if nested_schema is not None:
+                    field_schema = {
+                        "$ref": f"#/components/schemas/{nested_schema}",
+                    }
+                else:
+                    field_schema = {
+                        "type": "object",
+                    }
+
+            elif field_type == "List":
                 item_type = field_info.get("item_type")
 
-                if item_type is not None:
+                field_schema = {
+                    "type": "array",
+                    "items": {},
+                }
+
+                if item_type == "Nested":
+                    nested_schema = field_info.get(
+                        "item_nested_schema"
+                    )
+
+                    if nested_schema is not None:
+                        field_schema["items"] = {
+                            "$ref": (
+                                "#/components/schemas/"
+                                f"{nested_schema}"
+                            ),
+                        }
+
+                elif item_type is not None:
                     field_schema["items"] = (
                         self.marshmallow_field_type_to_openapi_schema(
                             item_type
                         )
                     )
+
+            else:
+                field_schema = (
+                    self.marshmallow_field_type_to_openapi_schema(
+                        field_type
+                    )
+                )
 
             properties[field_name] = field_schema
 
@@ -1573,3 +1645,41 @@ class FlaskASTOpenAPI:
                 return status_code
 
         return 200
+    def extract_marshmallow_schema_components(
+    self,
+    tree: ast.Module,
+) -> dict[str, dict[str, Any]]:
+        """Extract Marshmallow schemas as OpenAPI components."""
+
+        schemas: dict[str, dict[str, Any]] = {}
+
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+
+            is_schema = False
+
+            for base in node.bases:
+                if isinstance(base, ast.Name) and base.id == "Schema":
+                    is_schema = True
+
+                elif (
+                    isinstance(base, ast.Attribute)
+                    and base.attr == "Schema"
+                ):
+                    is_schema = True
+
+            if not is_schema:
+                continue
+
+            extracted_fields = self.extract_marshmallow_fields(
+                node
+            )
+
+            schemas[node.name] = (
+                self.build_openapi_schema_from_marshmallow_fields(
+                    extracted_fields
+                )
+            )
+
+        return schemas

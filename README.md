@@ -21,6 +21,8 @@ It also provides optional Swagger UI integration for Flask applications.
   * `@app.delete(...)`
 * Blueprint route support
 * Blueprint `url_prefix` support
+* Nested and cross-file Blueprint registration support
+* Automatic Blueprint tags for Swagger UI grouping
 * Flask path parameter conversion to OpenAPI format
 * Flask converter support:
 
@@ -40,6 +42,9 @@ It also provides optional Swagger UI integration for Flask applications.
 * Synchronous and asynchronous Flask route support
 * Marshmallow request schema support
 * Marshmallow response schema support
+* Cross-file Marshmallow schema resolution
+* Automatic request content-type detection for JSON and multipart forms
+* Request and response content-type docstring overrides
 * Nested Marshmallow schema support
 * OpenAPI component schema generation
 * Configurable authentication decorators
@@ -416,6 +421,23 @@ def create_user():
     ...
 ```
 
+JSON bodies are detected from `request.get_json()` and `request.json`.
+Multipart bodies are detected from `request.form` and `request.files`.
+For custom media types, use docstring directives:
+
+```python
+@app.post("/documents")
+def upload_document():
+    """
+    :request: DocumentUploadSchema
+    :response: DocumentResponseSchema
+    :request-content-type: multipart/form-data
+    :response-content-type: application/json
+    """
+
+    ...
+```
+
 The generator detects `UserRequestSchema` and creates an OpenAPI request-body schema.
 
 ## Response Schemas
@@ -770,10 +792,12 @@ Future development may include:
 Current version:
 
 ```text
-0.1.1
+0.2.1
 ```
 
-Version `0.1.1` adds support for passing authentication and security configuration directly through `create_swagger_blueprint()`, including multiple security schemes and `AND` / `OR` authentication behavior.
+Version `0.2.1` adds automatic JSON and multipart request content-type
+detection, explicit request/response media-type overrides, and avoids creating
+request bodies for header-only and path-only inputs.
 
 ## License
 

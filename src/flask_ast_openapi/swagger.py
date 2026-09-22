@@ -56,6 +56,7 @@ def create_swagger_blueprint(
     auth_scheme_mapping: dict[str, list[str]] | None = None,
     auth_scheme_modes: dict[str, str] | None = None,
     security_schemes: dict[str, dict] | None = None,
+    excluded_dir_names: set[str] | None = None,
 ) -> Blueprint:
     """Create a Flask Blueprint serving OpenAPI JSON and Swagger UI."""
 
@@ -74,6 +75,7 @@ def create_swagger_blueprint(
             auth_scheme_mapping=auth_scheme_mapping,
             auth_scheme_modes=auth_scheme_modes,
             security_schemes=security_schemes,
+            excluded_dir_names=excluded_dir_names,
         )
 
         return generator.generate(

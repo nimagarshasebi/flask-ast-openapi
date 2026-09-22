@@ -34,6 +34,9 @@ class RouteDefinition:
     description: str | None = None
     request_schema: dict[str, Any] | None = None
     response_schema: dict[str, Any] | None = None
+    request_content_type: str | None = "application/json"
+    response_content_type: str = "application/json"
+    tag: str | None = None
 @dataclass
 class PathParameter:
     """A parameter extracted from a Flask route path."""
@@ -47,6 +50,15 @@ class FlaskASTOpenAPI:
         "jwt_required",
         "login_required",
     }
+    DEFAULT_EXCLUDED_DIRS = {
+        ".git",
+        ".pytest_cache",
+        ".venv",
+        "__pycache__",
+        "test",
+        "tests",
+        "venv",
+    }
     def __init__(
     self,
     source_dir: str | Path,
@@ -54,6 +66,7 @@ class FlaskASTOpenAPI:
     auth_scheme_mapping: dict[str, list[str]] | None = None,
     security_schemes: dict[str, dict[str, Any]] | None = None,
     auth_scheme_modes: dict[str, str] | None = None,
+    excluded_dir_names: set[str] | None = None,
 ) -> None:
         self.source_dir = Path(source_dir)
 
@@ -89,10 +102,25 @@ class FlaskASTOpenAPI:
             if auth_scheme_modes is not None
             else {}
         )
+        self._schema_registry: dict[str, ast.ClassDef] = {}
+        self._blueprint_prefixes: dict[str, str] = {}
+        self._blueprint_tags: dict[str, str] = {}
+        self.excluded_dir_names = (
+            excluded_dir_names
+            if excluded_dir_names is not None
+            else self.DEFAULT_EXCLUDED_DIRS.copy()
+        )
     def discover_python_files(self) -> list[Path]:
         """Find all Python files inside the source directory."""
 
-        return sorted(self.source_dir.rglob("*.py"))
+        return sorted(
+            path
+            for path in self.source_dir.rglob("*.py")
+            if not any(
+                part in self.excluded_dir_names
+                for part in path.relative_to(self.source_dir).parts[:-1]
+            )
+        )
 
     def parse_file(self, file_path: str | Path) -> ast.Module:
         """Read a Python file and convert it into an AST tree."""
@@ -211,7 +239,10 @@ class FlaskASTOpenAPI:
 
         routes: list[RouteDefinition] = []
 
-        blueprint_prefixes = self.extract_blueprint_prefixes(tree)
+        blueprint_prefixes = {
+            **self.extract_blueprint_prefixes(tree),
+            **self._blueprint_prefixes,
+        }
 
         for function in self.find_route_functions(tree):
             auth_decorator_name = self.extract_auth_decorator_name(
@@ -257,6 +288,12 @@ class FlaskASTOpenAPI:
                         request_schema=self.build_request_schema_from_docstring(
                             tree,
                             function,
+                        ),
+                        request_content_type=(
+                            self.extract_request_content_type(function)
+                        ),
+                        response_content_type=(
+                            self.extract_response_content_type(function)
                         ),
                         uses_json_body=(
                             self.function_uses_json_body(
@@ -311,6 +348,7 @@ class FlaskASTOpenAPI:
                                 function,
                             )
                         ),
+                        tag=self._blueprint_tags.get(owner),
                     )
                 )
 
@@ -394,7 +432,8 @@ class FlaskASTOpenAPI:
 
         parameters.extend(
             self.build_query_parameters_from_names(
-                route.query_parameter_names
+                route.query_parameter_names,
+                route.request_schema,
             )
         )
         response_status_codes = list(
@@ -424,10 +463,17 @@ class FlaskASTOpenAPI:
             "responses": self.build_openapi_responses(
                 response_status_codes,
                 response_schemas,
+                route.response_content_type,
             ),
         }
 
-        if route.uses_json_body:
+        if route.tag:
+            operation["tags"] = [route.tag]
+
+        if (
+            route.request_content_type is not None
+            and (route.uses_json_body or route.request_schema is not None)
+        ):
             request_schema = route.request_schema
 
             if request_schema is None:
@@ -440,7 +486,7 @@ class FlaskASTOpenAPI:
             operation["requestBody"] = {
                 "required": True,
                 "content": {
-                    "application/json": {
+                    route.request_content_type: {
                         "schema": request_schema,
                     }
                 },
@@ -505,7 +551,7 @@ class FlaskASTOpenAPI:
         if schemas:
             components["schemas"] = schemas
 
-        return {
+        spec = {
             "openapi": "3.0.3",
             "info": {
                 "title": title,
@@ -514,6 +560,130 @@ class FlaskASTOpenAPI:
             "components": components,
             "paths": self.build_openapi_paths(routes),
         }
+
+        tags = sorted({route.tag for route in routes if route.tag})
+        if tags:
+            spec["tags"] = [{"name": tag} for tag in tags]
+
+        return spec
+
+    def expression_name(self, node: ast.expr) -> str | None:
+        """Return the final name from a Name or Attribute expression."""
+
+        if isinstance(node, ast.Name):
+            return node.id
+
+        if isinstance(node, ast.Attribute):
+            return node.attr
+
+        return None
+
+    def index_project(self, trees: list[ast.Module]) -> None:
+        """Index schemas and resolve Blueprint registration chains."""
+
+        blueprint_defaults: dict[str, str] = {}
+        registrations: list[tuple[str, str, str | None]] = []
+
+        self._schema_registry = {}
+        self._blueprint_prefixes = {}
+        self._blueprint_tags = {}
+
+        for tree in trees:
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    self._schema_registry[node.name] = node
+
+                if not isinstance(node, ast.Assign):
+                    continue
+
+                if not isinstance(node.value, ast.Call):
+                    continue
+
+                call = node.value
+                if not isinstance(call.func, ast.Name):
+                    continue
+
+                if call.func.id != "Blueprint":
+                    continue
+
+                prefix = ""
+                for keyword in call.keywords:
+                    if (
+                        keyword.arg == "url_prefix"
+                        and isinstance(keyword.value, ast.Constant)
+                        and isinstance(keyword.value.value, str)
+                    ):
+                        prefix = keyword.value.value
+
+                blueprint_name: str | None = None
+                if (
+                    call.args
+                    and isinstance(call.args[0], ast.Constant)
+                    and isinstance(call.args[0].value, str)
+                ):
+                    blueprint_name = call.args[0].value
+
+                for target in node.targets:
+                    if not isinstance(target, ast.Name):
+                        continue
+                    blueprint_defaults[target.id] = prefix
+                    tag_name = blueprint_name or target.id.removesuffix("_bp")
+                    self._blueprint_tags[target.id] = (
+                        tag_name.replace("_", " ").title()
+                    )
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not isinstance(node.func, ast.Attribute):
+                    continue
+                if node.func.attr != "register_blueprint" or not node.args:
+                    continue
+
+                parent = self.expression_name(node.func.value)
+                child = self.expression_name(node.args[0])
+                if parent is None or child is None:
+                    continue
+
+                registration_prefix: str | None = None
+                for keyword in node.keywords:
+                    if (
+                        keyword.arg == "url_prefix"
+                        and isinstance(keyword.value, ast.Constant)
+                        and isinstance(keyword.value.value, str)
+                    ):
+                        registration_prefix = keyword.value.value
+
+                registrations.append((parent, child, registration_prefix))
+
+        unresolved = list(registrations)
+        for _ in range(len(unresolved) + 1):
+            next_unresolved: list[tuple[str, str, str | None]] = []
+            changed = False
+
+            for parent, child, registration_prefix in unresolved:
+                if parent in blueprint_defaults and parent not in self._blueprint_prefixes:
+                    next_unresolved.append((parent, child, registration_prefix))
+                    continue
+
+                parent_prefix = self._blueprint_prefixes.get(parent, "")
+                child_prefix = (
+                    registration_prefix
+                    if registration_prefix is not None
+                    else blueprint_defaults.get(child, "")
+                )
+                self._blueprint_prefixes[child] = self.combine_url_prefix_and_path(
+                    parent_prefix,
+                    child_prefix,
+                )
+                changed = True
+
+            unresolved = next_unresolved
+            if not unresolved or not changed:
+                break
+
+        for blueprint, prefix in blueprint_defaults.items():
+            self._blueprint_prefixes.setdefault(blueprint, prefix)
     def generate(
         self,
         title: str = "Flask API",
@@ -523,9 +693,14 @@ class FlaskASTOpenAPI:
 
             routes: list[RouteDefinition] = []
             schemas: dict[str, dict[str, Any]] = {}
+            trees = [
+                self.parse_file(file_path)
+                for file_path in self.discover_python_files()
+            ]
 
-            for file_path in self.discover_python_files():
-                tree = self.parse_file(file_path)
+            self.index_project(trees)
+
+            for tree in trees:
 
                 routes.extend(
                     self.extract_routes(tree)
@@ -619,17 +794,30 @@ class FlaskASTOpenAPI:
             )
 
         return parameters
-    def build_query_parameters_from_names(self,names: list[str],) -> list[dict[str, Any]]:
+    def build_query_parameters_from_names(
+        self,
+        names: list[str],
+        request_schema: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """Build OpenAPI query parameters from their names."""
+
+        schema_properties = (
+            request_schema.get("properties", {})
+            if request_schema
+            else {}
+        )
+        required_names = set(
+            request_schema.get("required", [])
+            if request_schema
+            else []
+        )
 
         return [
             {
                 "name": name,
                 "in": "query",
-                "required": False,
-                "schema": {
-                    "type": "string",
-                },
+                "required": name in required_names,
+                "schema": schema_properties.get(name, {"type": "string"}),
             }
             for name in names
         ]
@@ -655,6 +843,78 @@ class FlaskASTOpenAPI:
                     return True
 
         return False 
+
+    def function_uses_multipart_body(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> bool:
+        """Check whether a route reads form fields or uploaded files."""
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Attribute):
+                continue
+
+            if (
+                isinstance(node.value, ast.Name)
+                and node.value.id == "request"
+                and node.attr in {"form", "files"}
+            ):
+                return True
+
+        return False
+
+    def extract_docstring_directive(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+        directive: str,
+    ) -> str | None:
+        """Extract a named ``:directive: value`` from a docstring."""
+
+        docstring = ast.get_docstring(function)
+        if not docstring:
+            return None
+
+        match = re.search(
+            rf"^\s*:{re.escape(directive)}:\s*([^\s]+)",
+            docstring,
+            re.MULTILINE,
+        )
+        return match.group(1) if match else None
+
+    def extract_request_content_type(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> str | None:
+        """Infer request body media type, allowing a docstring override."""
+
+        explicit = self.extract_docstring_directive(
+            function,
+            "request-content-type",
+        )
+        if explicit:
+            return explicit
+
+        if self.function_uses_multipart_body(function):
+            return "multipart/form-data"
+
+        if self.function_uses_json_body(function):
+            return "application/json"
+
+        return None
+
+    def extract_response_content_type(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> str:
+        """Return the declared response media type or JSON by default."""
+
+        return (
+            self.extract_docstring_directive(
+                function,
+                "response-content-type",
+            )
+            or "application/json"
+        )
     def extract_json_body_field_names(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> list[str]:
         """Extract JSON body field names used inside a route function."""
 
@@ -990,9 +1250,10 @@ class FlaskASTOpenAPI:
 
         return status_codes
     def build_openapi_responses(
-    self,
-    status_codes: list[int],
-    response_schemas: dict[int, dict[str, Any]] | None = None,
+        self,
+        status_codes: list[int],
+        response_schemas: dict[int, dict[str, Any]] | None = None,
+        content_type: str = "application/json",
 ) -> dict[str, Any]:
         """Build OpenAPI responses from status codes and schemas."""
 
@@ -1015,7 +1276,7 @@ class FlaskASTOpenAPI:
 
             if schema:
                 response["content"] = {
-                    "application/json": {
+                    content_type: {
                         "schema": schema,
                     }
                 }
@@ -1373,7 +1634,7 @@ class FlaskASTOpenAPI:
             if node.name == schema_name:
                 return node
 
-        return None
+        return self._schema_registry.get(schema_name)
     def extract_marshmallow_fields(
         self,
         schema_class: ast.ClassDef,

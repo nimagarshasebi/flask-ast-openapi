@@ -940,6 +940,43 @@ def test_build_openapi_operation_includes_query_parameters(tmp_path):
     ]
 
 
+def test_build_openapi_operation_uses_request_schema_for_query_parameters(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    route = RouteDefinition(
+        function_name="get_users",
+        path="/users",
+        methods=["GET"],
+        query_parameter_names=["page", "page_size"],
+        request_schema={
+            "type": "object",
+            "properties": {
+                "page": {"type": "integer"},
+                "page_size": {"type": "integer"},
+            },
+        },
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["parameters"] == [
+        {
+            "name": "page",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "integer"},
+        },
+        {
+            "name": "page_size",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "integer"},
+        },
+    ]
+
+
 def test_build_openapi_operation_combines_path_and_query_parameters(
     tmp_path,
 ):
@@ -6316,3 +6353,178 @@ def create_user():
             "name",
         ],
     }
+
+
+def test_generate_resolves_nested_registered_blueprints(tmp_path):
+    (tmp_path / "app.py").write_text(
+        """
+from flask import Blueprint, Flask
+from api import user_api, request_api
+
+app = Flask(__name__)
+api_bp = Blueprint("api", __name__)
+api_bp.register_blueprint(user_api.user_bp, url_prefix="/user")
+api_bp.register_blueprint(request_api.request_bp, url_prefix="/request")
+app.register_blueprint(api_bp, url_prefix="/api")
+""",
+        encoding="utf-8",
+    )
+    api_dir = tmp_path / "api"
+    api_dir.mkdir()
+    (api_dir / "user_api.py").write_text(
+        """
+from flask import Blueprint
+user_bp = Blueprint("user", __name__)
+
+@user_bp.route("/create", methods=["POST"])
+def create_user():
+    return {}, 200
+""",
+        encoding="utf-8",
+    )
+    (api_dir / "request_api.py").write_text(
+        """
+from flask import Blueprint
+request_bp = Blueprint("request", __name__)
+
+@request_bp.route("/create", methods=["POST"])
+def create_request():
+    return {}, 200
+""",
+        encoding="utf-8",
+    )
+
+    spec = FlaskASTOpenAPI(tmp_path).generate()
+
+    assert "/api/user/create" in spec["paths"]
+    assert "/api/request/create" in spec["paths"]
+    assert spec["paths"]["/api/user/create"]["post"]["tags"] == ["User"]
+    assert spec["paths"]["/api/request/create"]["post"]["tags"] == ["Request"]
+
+
+def test_generate_resolves_schema_references_across_files(tmp_path):
+    (tmp_path / "schemas.py").write_text(
+        """
+from marshmallow import Schema, fields
+
+class CreateUserSchema(Schema):
+    name = fields.String(required=True)
+
+class CreateUserResponseSchema(Schema):
+    id = fields.Integer(required=True)
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "routes.py").write_text(
+        """
+from flask import Blueprint, request
+from schemas import CreateUserSchema, CreateUserResponseSchema
+
+user_bp = Blueprint("user", __name__, url_prefix="/users")
+
+@user_bp.route("/create", methods=["POST"])
+def create_user():
+    \"\"\"
+    Create a user.
+    :request: CreateUserSchema
+    :response: CreateUserResponseSchema
+    \"\"\"
+    data = request.get_json()
+    return {"id": 1}, 200
+""",
+        encoding="utf-8",
+    )
+
+    spec = FlaskASTOpenAPI(tmp_path).generate()
+    operation = spec["paths"]["/users/create"]["post"]
+
+    request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert request_schema["properties"]["name"] == {"type": "string"}
+    assert response_schema["properties"]["id"] == {"type": "integer"}
+
+
+def test_generate_infers_multipart_form_data(tmp_path):
+    (tmp_path / "routes.py").write_text(
+        """
+from flask import Blueprint, request
+from marshmallow import Schema, fields
+
+class UploadSchema(Schema):
+    title = fields.String(required=True)
+    file = fields.Raw(required=True)
+
+upload_bp = Blueprint("upload", __name__)
+
+@upload_bp.route("/upload", methods=["POST"])
+def upload():
+    \"\"\":request: UploadSchema\"\"\"
+    title = request.form.get("title")
+    file = request.files.get("file")
+    return {}, 200
+""",
+        encoding="utf-8",
+    )
+
+    spec = FlaskASTOpenAPI(tmp_path).generate()
+    content = spec["paths"]["/upload"]["post"]["requestBody"]["content"]
+
+    assert "multipart/form-data" in content
+    assert "application/json" not in content
+
+
+def test_generate_does_not_create_body_for_header_only_schema(tmp_path):
+    (tmp_path / "routes.py").write_text(
+        """
+from flask import Blueprint, request
+from marshmallow import Schema, fields
+
+class TokenSchema(Schema):
+    token = fields.String(required=True)
+
+auth_bp = Blueprint("auth", __name__)
+
+@auth_bp.route("/validate", methods=["POST"])
+def validate():
+    \"\"\":request: TokenSchema\"\"\"
+    token = request.headers.get("Authorization")
+    return {}, 200
+""",
+        encoding="utf-8",
+    )
+
+    spec = FlaskASTOpenAPI(tmp_path).generate()
+
+    assert "requestBody" not in spec["paths"]["/validate"]["post"]
+
+
+def test_docstring_can_override_request_and_response_content_types(tmp_path):
+    (tmp_path / "routes.py").write_text(
+        """
+from flask import Blueprint, request
+from marshmallow import Schema, fields
+
+class PayloadSchema(Schema):
+    value = fields.String(required=True)
+
+bp = Blueprint("custom", __name__)
+
+@bp.route("/custom", methods=["POST"])
+def custom():
+    \"\"\"
+    :request: PayloadSchema
+    :response: PayloadSchema
+    :request-content-type: application/x-www-form-urlencoded
+    :response-content-type: application/problem+json
+    \"\"\"
+    value = request.form.get("value")
+    return {"value": value}, 200
+""",
+        encoding="utf-8",
+    )
+
+    spec = FlaskASTOpenAPI(tmp_path).generate()
+    operation = spec["paths"]["/custom"]["post"]
+
+    assert "application/x-www-form-urlencoded" in operation["requestBody"]["content"]
+    assert "application/problem+json" in operation["responses"]["200"]["content"]

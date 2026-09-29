@@ -36,6 +36,7 @@ class RouteDefinition:
     response_schema: dict[str, Any] | None = None
     request_content_type: str | None = "application/json"
     response_content_type: str = "application/json"
+    response_content_types: dict[int, str] = field(default_factory=dict)
     tag: str | None = None
 @dataclass
 class PathParameter:
@@ -295,6 +296,15 @@ class FlaskASTOpenAPI:
                         response_content_type=(
                             self.extract_response_content_type(function)
                         ),
+                        response_content_types=(
+                            {
+                                self.find_success_status_code(
+                                    self.extract_response_status_codes(function)
+                                ): binary_type
+                            }
+                            if (binary_type := self.extract_binary_response_content_type(function))
+                            else {}
+                        ),
                         uses_json_body=(
                             self.function_uses_json_body(
                                 function
@@ -464,6 +474,7 @@ class FlaskASTOpenAPI:
                 response_status_codes,
                 response_schemas,
                 route.response_content_type,
+                route.response_content_types,
             ),
         }
 
@@ -915,6 +926,12 @@ class FlaskASTOpenAPI:
             )
             or "application/json"
         )
+
+    def extract_binary_response_content_type(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> str | None:
+        return self.extract_docstring_directive(function, "binary_response")
     def extract_json_body_field_names(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> list[str]:
         """Extract JSON body field names used inside a route function."""
 
@@ -1254,10 +1271,12 @@ class FlaskASTOpenAPI:
         status_codes: list[int],
         response_schemas: dict[int, dict[str, Any]] | None = None,
         content_type: str = "application/json",
+        response_content_types: dict[int, str] | None = None,
 ) -> dict[str, Any]:
         """Build OpenAPI responses from status codes and schemas."""
 
         response_schemas = response_schemas or {}
+        response_content_types = response_content_types or {}
 
         effective_status_codes = (
             status_codes
@@ -1273,10 +1292,21 @@ class FlaskASTOpenAPI:
             }
 
             schema = response_schemas.get(status_code)
+            status_content_type = response_content_types.get(
+                status_code,
+                content_type if 200 <= status_code < 300 else "application/json",
+            )
+
+            if schema is None and status_content_type in {
+                "application/octet-stream",
+                "video/mp4",
+                "audio/mpeg",
+            }:
+                schema = {"type": "string", "format": "binary"}
 
             if schema:
                 response["content"] = {
-                    content_type: {
+                    status_content_type: {
                         "schema": schema,
                     }
                 }
@@ -1664,11 +1694,28 @@ class FlaskASTOpenAPI:
             field_type = node.value.func.attr
 
             required = False
+            allow_none = False
+            enum_values: list[Any] | None = None
             item_type: str | None = None
             nested_schema: str | None = None
             item_nested_schema: str | None = None
 
             for keyword in node.value.keywords:
+                if keyword.arg == "allow_none":
+                    allow_none = isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                    continue
+
+                if keyword.arg == "validate":
+                    validator = keyword.value
+                    if (isinstance(validator, ast.Call)
+                            and isinstance(validator.func, ast.Attribute)
+                            and validator.func.attr == "OneOf"
+                            and validator.args
+                            and isinstance(validator.args[0], (ast.List, ast.Tuple))):
+                        enum_values = [item.value for item in validator.args[0].elts
+                                       if isinstance(item, ast.Constant)]
+                    continue
+
                 if keyword.arg != "required":
                     continue
 
@@ -1702,6 +1749,12 @@ class FlaskASTOpenAPI:
                 "field_type": field_type,
                 "required": required,
             }
+
+            if allow_none:
+                field_info["allow_none"] = True
+
+            if enum_values is not None:
+                field_info["enum"] = enum_values
 
             if item_type is not None:
                 field_info["item_type"] = item_type
@@ -1800,12 +1853,14 @@ class FlaskASTOpenAPI:
                     )
 
                     if nested_schema is not None:
-                        field_schema["items"] = {
-                            "$ref": (
-                                "#/components/schemas/"
-                                f"{nested_schema}"
-                            ),
-                        }
+                        nested_class = self._schema_registry.get(nested_schema)
+                        field_schema["items"] = (
+                            self.build_openapi_schema_from_marshmallow_fields(
+                                self.extract_marshmallow_fields(nested_class)
+                            ) if nested_class is not None else {
+                                "$ref": f"#/components/schemas/{nested_schema}",
+                            }
+                        )
 
                 elif item_type is not None:
                     field_schema["items"] = (
@@ -1822,6 +1877,11 @@ class FlaskASTOpenAPI:
                 )
 
             properties[field_name] = field_schema
+
+            if field_info.get("allow_none"):
+                field_schema["nullable"] = True
+            if "enum" in field_info:
+                field_schema["enum"] = field_info["enum"]
 
             if field_info.get("required"):
                 required_fields.append(field_name)

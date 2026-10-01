@@ -634,6 +634,44 @@ The `201` status code and response structure can be added to the generated OpenA
 
 Multiple statically detectable response status codes can be collected from a route.
 
+For responses returned indirectly through service or controller calls, status codes
+can be declared in the route docstring:
+
+```python
+@app.post("/items")
+def create_item():
+    """
+    Create an item.
+    :response_status: 201
+    :error_responses: 400,401,409
+    """
+    return controller.create_item()
+```
+
+Binary responses can declare their media type:
+
+```python
+:binary_response: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+```
+
+## Marshmallow Metadata
+
+The `description`, `example`, `format`, and `type` Marshmallow metadata keys are
+included in generated schemas:
+
+```python
+name = fields.String(
+    metadata={
+        "description": "Human-readable name",
+        "example": "Invoice",
+    }
+)
+
+files = fields.List(
+    fields.Raw(metadata={"type": "string", "format": "binary"})
+)
+```
+
 ## Route Descriptions
 
 Function docstrings are used as OpenAPI descriptions.

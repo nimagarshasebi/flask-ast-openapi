@@ -589,6 +589,17 @@ class FlaskASTOpenAPI:
 
         return None
 
+    def extract_nested_schema_name(
+        self,
+        node: ast.expr,
+    ) -> str | None:
+        """Extract a schema name from ``Schema`` or ``Schema()``."""
+
+        if isinstance(node, ast.Call):
+            return self.expression_name(node.func)
+
+        return self.expression_name(node)
+
     def index_project(self, trees: list[ast.Module]) -> None:
         """Index schemas and resolve Blueprint registration chains."""
 
@@ -1020,7 +1031,17 @@ class FlaskASTOpenAPI:
     def extract_function_description(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> str | None:
         """Extract the docstring from a route function."""
 
-        return ast.get_docstring(function)
+        docstring = ast.get_docstring(function)
+        if not docstring:
+            return None
+
+        description_lines = [
+            line
+            for line in docstring.splitlines()
+            if not re.match(r"^\s*:[\w-]+:\s*", line)
+        ]
+        description = "\n".join(description_lines).strip()
+        return description or None
     def is_http_method_decorator(self,decorator: ast.expr,) -> bool:
         """Check whether a decorator is a Flask HTTP method decorator."""
 
@@ -1246,10 +1267,15 @@ class FlaskASTOpenAPI:
             if not isinstance(node, ast.Return):
                 continue
 
-            if not isinstance(node.value, ast.Tuple):
-                continue
+            if isinstance(node.value, ast.Call):
+                for keyword in node.value.keywords:
+                    if keyword.arg not in {"status_code", "success_status_code"}:
+                        continue
+                    if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, int):
+                        if keyword.value.value not in status_codes:
+                            status_codes.append(keyword.value.value)
 
-            if len(node.value.elts) < 2:
+            if not isinstance(node.value, ast.Tuple) or len(node.value.elts) < 2:
                 continue
 
             status_node = node.value.elts[1]
@@ -1264,6 +1290,15 @@ class FlaskASTOpenAPI:
 
             if status_code not in status_codes:
                 status_codes.append(status_code)
+
+        for directive in ("response_status", "error_responses"):
+            declared_codes = self.extract_docstring_directive(function, directive)
+            if not declared_codes:
+                continue
+            for value in declared_codes.split(","):
+                value = value.strip()
+                if value.isdigit() and int(value) not in status_codes:
+                    status_codes.append(int(value))
 
         return status_codes
     def build_openapi_responses(
@@ -1297,11 +1332,7 @@ class FlaskASTOpenAPI:
                 content_type if 200 <= status_code < 300 else "application/json",
             )
 
-            if schema is None and status_content_type in {
-                "application/octet-stream",
-                "video/mp4",
-                "audio/mpeg",
-            }:
+            if schema is None and status_code in response_content_types:
                 schema = {"type": "string", "format": "binary"}
 
             if schema:
@@ -1699,8 +1730,23 @@ class FlaskASTOpenAPI:
             item_type: str | None = None
             nested_schema: str | None = None
             item_nested_schema: str | None = None
+            metadata: dict[str, Any] = {}
+            item_metadata: dict[str, Any] = {}
 
             for keyword in node.value.keywords:
+                if keyword.arg == "metadata":
+                    try:
+                        literal_metadata = ast.literal_eval(keyword.value)
+                    except (ValueError, TypeError):
+                        literal_metadata = None
+                    if isinstance(literal_metadata, dict):
+                        metadata = {
+                            key: value
+                            for key, value in literal_metadata.items()
+                            if key in {"description", "example", "format", "type"}
+                        }
+                    continue
+
                 if keyword.arg == "allow_none":
                     allow_none = isinstance(keyword.value, ast.Constant) and keyword.value.value is True
                     continue
@@ -1734,16 +1780,30 @@ class FlaskASTOpenAPI:
                 ):
                     item_type = inner_field.func.attr
 
+                    for keyword in inner_field.keywords:
+                        if keyword.arg != "metadata":
+                            continue
+                        try:
+                            literal_metadata = ast.literal_eval(keyword.value)
+                        except (ValueError, TypeError):
+                            literal_metadata = None
+                        if isinstance(literal_metadata, dict):
+                            item_metadata = {
+                                key: value
+                                for key, value in literal_metadata.items()
+                                if key in {"description", "example", "format", "type"}
+                            }
+
                     if item_type == "Nested" and inner_field.args:
                         nested_argument = inner_field.args[0]
-
-                        if isinstance(nested_argument, ast.Name):
-                            item_nested_schema = nested_argument.id
+                        item_nested_schema = self.extract_nested_schema_name(
+                            nested_argument
+                        )
             if field_type == "Nested" and node.value.args:
                 nested_argument = node.value.args[0]
-
-                if isinstance(nested_argument, ast.Name):
-                    nested_schema = nested_argument.id
+                nested_schema = self.extract_nested_schema_name(
+                    nested_argument
+                )
 
             field_info: dict[str, Any] = {
                 "field_type": field_type,
@@ -1763,6 +1823,10 @@ class FlaskASTOpenAPI:
 
             if nested_schema is not None:
                 field_info["nested_schema"] = nested_schema
+            if metadata:
+                field_info["metadata"] = metadata
+            if item_metadata:
+                field_info["item_metadata"] = item_metadata
 
             extracted_fields[target.id] = field_info
 
@@ -1869,6 +1933,8 @@ class FlaskASTOpenAPI:
                         )
                     )
 
+                field_schema["items"].update(field_info.get("item_metadata", {}))
+
             else:
                 field_schema = (
                     self.marshmallow_field_type_to_openapi_schema(
@@ -1882,6 +1948,7 @@ class FlaskASTOpenAPI:
                 field_schema["nullable"] = True
             if "enum" in field_info:
                 field_schema["enum"] = field_info["enum"]
+            field_schema.update(field_info.get("metadata", {}))
 
             if field_info.get("required"):
                 required_fields.append(field_name)

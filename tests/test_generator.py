@@ -2454,6 +2454,37 @@ def get_users():
     assert status_codes == []
 
 
+def test_extract_response_status_codes_supports_call_keyword_and_directives(tmp_path):
+    function = ast.parse('''
+def create_resource():
+    """
+    Create a resource.
+    :response_status: 201
+    :error_responses: 400,401,409
+    """
+    return service.create(success_status_code=201)
+''').body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.extract_response_status_codes(function) == [201, 400, 401, 409]
+
+
+def test_extract_function_description_excludes_directives(tmp_path):
+    function = ast.parse('''
+def create_resource():
+    """
+    Create a resource.
+    :request: CreateSchema
+    :response_status: 201
+    """
+''').body[0]
+
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.extract_function_description(function) == "Create a resource."
+
+
 def test_extract_response_status_codes_detects_multiple_statuses(
     tmp_path,
 ):
@@ -6126,6 +6157,66 @@ class UserSchema(Schema):
         "required": False,
         "nested_schema": "ProfileSchema",
     }
+
+
+def test_marshmallow_metadata_is_added_to_fields_and_list_items(tmp_path):
+    source_code = '''
+class UploadSchema(Schema):
+    title = fields.String(metadata={"description": "Display title", "example": "Invoice"})
+    files = fields.List(
+        fields.Raw(metadata={"type": "string", "format": "binary"}),
+        metadata={"description": "Files to upload"},
+    )
+'''
+    schema_class = ast.parse(source_code).body[0]
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted = generator.extract_marshmallow_fields(schema_class)
+    schema = generator.build_openapi_schema_from_marshmallow_fields(extracted)
+
+    assert schema["properties"]["title"] == {
+        "type": "string",
+        "description": "Display title",
+        "example": "Invoice",
+    }
+    assert schema["properties"]["files"] == {
+        "type": "array",
+        "items": {"type": "string", "format": "binary"},
+        "description": "Files to upload",
+    }
+
+
+def test_binary_response_supports_any_declared_media_type(tmp_path):
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    responses = generator.build_openapi_responses(
+        [200],
+        response_content_types={
+            200: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+    )
+
+    assert responses["200"]["content"] == {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+            "schema": {"type": "string", "format": "binary"},
+        }
+    }
+
+
+def test_extract_marshmallow_fields_supports_instantiated_nested_schema(
+    tmp_path,
+):
+    source_code = """
+class UserSchema(Schema):
+    profile = fields.Nested(ProfileSchema())
+"""
+
+    schema_class = ast.parse(source_code).body[0]
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(schema_class)
+
+    assert extracted_fields["profile"]["nested_schema"] == "ProfileSchema"
 def test_extract_marshmallow_fields_extracts_list_of_nested_schema(
     tmp_path,
 ):
@@ -6177,6 +6268,22 @@ class TeamSchema(Schema):
         "item_type": "Nested",
         "item_nested_schema": "UserSchema",
     }
+
+
+def test_extract_marshmallow_fields_supports_list_of_instantiated_nested_schema(
+    tmp_path,
+):
+    source_code = """
+class TeamSchema(Schema):
+    members = fields.List(fields.Nested(UserSchema()))
+"""
+
+    schema_class = ast.parse(source_code).body[0]
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    extracted_fields = generator.extract_marshmallow_fields(schema_class)
+
+    assert extracted_fields["members"]["item_nested_schema"] == "UserSchema"
 def test_build_openapi_schema_supports_nested_field(
     tmp_path,
 ):

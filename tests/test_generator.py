@@ -6203,6 +6203,40 @@ def test_binary_response_supports_any_declared_media_type(tmp_path):
     }
 
 
+def test_error_response_schema_is_applied_to_declared_error_codes(tmp_path):
+    source_code = '''
+class ApiErrorResponseSchema(Schema):
+    status = fields.Integer(required=True)
+    message = fields.String(required=True)
+
+@app.post("/items")
+def create_item():
+    """
+    Create an item.
+    :error_responses: 400,404
+    :error_response: ApiErrorResponseSchema
+    """
+    return controller.create()
+'''
+    tree = ast.parse(source_code)
+    generator = FlaskASTOpenAPI(tmp_path)
+    generator.index_project([tree])
+
+    route = generator.extract_routes(tree)[0]
+    operation = generator.build_openapi_operation(route)
+
+    expected_schema = {
+        "type": "object",
+        "properties": {
+            "status": {"type": "integer"},
+            "message": {"type": "string"},
+        },
+        "required": ["status", "message"],
+    }
+    assert operation["responses"]["400"]["content"]["application/json"]["schema"] == expected_schema
+    assert operation["responses"]["404"]["content"]["application/json"]["schema"] == expected_schema
+
+
 def test_extract_marshmallow_fields_supports_instantiated_nested_schema(
     tmp_path,
 ):

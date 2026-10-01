@@ -34,6 +34,7 @@ class RouteDefinition:
     description: str | None = None
     request_schema: dict[str, Any] | None = None
     response_schema: dict[str, Any] | None = None
+    error_response_schema: dict[str, Any] | None = None
     request_content_type: str | None = "application/json"
     response_content_type: str = "application/json"
     response_content_types: dict[int, str] = field(default_factory=dict)
@@ -358,6 +359,12 @@ class FlaskASTOpenAPI:
                                 function,
                             )
                         ),
+                        error_response_schema=(
+                            self.build_error_response_schema_from_docstring(
+                                tree,
+                                function,
+                            )
+                        ),
                         tag=self._blueprint_tags.get(owner),
                     )
                 )
@@ -467,6 +474,11 @@ class FlaskASTOpenAPI:
                 response_status_codes.append(
                     success_status_code
                 )
+
+        if route.error_response_schema is not None:
+            for status_code in response_status_codes:
+                if status_code >= 400:
+                    response_schemas[status_code] = route.error_response_schema
         operation: dict[str, Any] = {
             "operationId": route.function_name,
             "parameters": parameters,
@@ -1681,6 +1693,14 @@ class FlaskASTOpenAPI:
             return None
 
         return match.group(1)
+
+    def extract_error_response_schema_name(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> str | None:
+        """Extract an error response schema name from the function docstring."""
+
+        return self.extract_docstring_directive(function, "error_response")
     def find_schema_class(
     self,
     tree: ast.Module,
@@ -2021,6 +2041,25 @@ class FlaskASTOpenAPI:
 
         return self.build_openapi_schema_from_marshmallow_fields(
             extracted_fields
+        )
+
+    def build_error_response_schema_from_docstring(
+        self,
+        tree: ast.Module,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> dict[str, Any] | None:
+        """Build a shared schema for declared error responses."""
+
+        schema_name = self.extract_error_response_schema_name(function)
+        if schema_name is None:
+            return None
+
+        schema_class = self.find_schema_class(tree, schema_name)
+        if schema_class is None:
+            return None
+
+        return self.build_openapi_schema_from_marshmallow_fields(
+            self.extract_marshmallow_fields(schema_class)
         )
     def find_success_status_code(
     self,

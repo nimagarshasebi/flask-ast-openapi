@@ -644,6 +644,7 @@ def create_item():
     Create an item.
     :response_status: 201
     :error_responses: 400,401,409
+    :error_response: ApiErrorResponseSchema
     """
     return controller.create_item()
 ```

@@ -14,6 +14,7 @@ class RouteDefinition:
     path: str
     methods: list[str]
     query_parameter_names: list[str] = field(default_factory=list)
+    uses_query_parameter_mapping: bool = False
     uses_json_body: bool = False
     json_body_field_names: list[str] = field(default_factory=list)
     required_json_body_field_names: list[str] = field(
@@ -287,6 +288,11 @@ class FlaskASTOpenAPI:
                                 function
                             )
                         ),
+                        uses_query_parameter_mapping=(
+                            self.function_uses_query_parameter_mapping(
+                                function
+                            )
+                        ),
                         request_schema=self.build_request_schema_from_docstring(
                             tree,
                             function,
@@ -447,9 +453,16 @@ class FlaskASTOpenAPI:
             route.path
         )
 
+        query_parameter_names = list(route.query_parameter_names)
+
+        if route.uses_query_parameter_mapping and route.request_schema:
+            for name in route.request_schema.get("properties", {}):
+                if name not in query_parameter_names:
+                    query_parameter_names.append(name)
+
         parameters.extend(
             self.build_query_parameters_from_names(
-                route.query_parameter_names,
+                query_parameter_names,
                 route.request_schema,
             )
         )
@@ -810,6 +823,37 @@ class FlaskASTOpenAPI:
             parameter_names.append(first_argument.value)
 
         return parameter_names
+
+    def function_uses_query_parameter_mapping(
+        self,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> bool:
+        """Return whether a route consumes all query args as a mapping."""
+
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Call):
+                continue
+
+            if not isinstance(node.func, ast.Attribute):
+                continue
+
+            if node.func.attr != "to_dict":
+                continue
+
+            args_attribute = node.func.value
+            if not isinstance(args_attribute, ast.Attribute):
+                continue
+
+            if args_attribute.attr != "args":
+                continue
+
+            if (
+                isinstance(args_attribute.value, ast.Name)
+                and args_attribute.value.id == "request"
+            ):
+                return True
+
+        return False
     def build_openapi_query_parameters(self,function: ast.FunctionDef | ast.AsyncFunctionDef,) -> list[dict[str, Any]]:
         """Build OpenAPI query parameters from a route function."""
 

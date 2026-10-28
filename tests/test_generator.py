@@ -842,6 +842,30 @@ def get_users():
     parameter_names = generator.extract_query_parameter_names(function)
 
     assert parameter_names == []
+
+
+def test_detects_request_args_to_dict(tmp_path):
+    source_code = """
+def get_prompt():
+    data = request.args.to_dict()
+"""
+
+    function = ast.parse(source_code).body[0]
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.function_uses_query_parameter_mapping(function) is True
+
+
+def test_ignores_unrelated_to_dict_calls(tmp_path):
+    source_code = """
+def get_prompt():
+    data = values.to_dict()
+"""
+
+    function = ast.parse(source_code).body[0]
+    generator = FlaskASTOpenAPI(tmp_path)
+
+    assert generator.function_uses_query_parameter_mapping(function) is False
 def test_build_openapi_query_parameters_returns_parameters(tmp_path):
     source_code = """
 def get_users():
@@ -973,6 +997,43 @@ def test_build_openapi_operation_uses_request_schema_for_query_parameters(
             "in": "query",
             "required": False,
             "schema": {"type": "integer"},
+        },
+    ]
+
+
+def test_build_openapi_operation_uses_schema_fields_for_args_to_dict(
+    tmp_path,
+):
+    generator = FlaskASTOpenAPI(tmp_path)
+    route = RouteDefinition(
+        function_name="get_prompt",
+        path="/prompts",
+        methods=["GET"],
+        uses_query_parameter_mapping=True,
+        request_schema={
+            "type": "object",
+            "properties": {
+                "prompt_id": {"type": "integer"},
+                "prompt_type": {"type": "string"},
+            },
+            "required": ["prompt_id"],
+        },
+    )
+
+    operation = generator.build_openapi_operation(route)
+
+    assert operation["parameters"] == [
+        {
+            "name": "prompt_id",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer"},
+        },
+        {
+            "name": "prompt_type",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string"},
         },
     ]
 
